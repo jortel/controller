@@ -1,4 +1,22 @@
 /*
+
+Remotes represent a (remote) cluster.
+
+Remote
+  |__ Watch -> Predicate, ...
+  |__ Watch -> Predicate, ...
+  |__ Watch -> Predicate, ...
+  |__router
+       |__ Relay
+       |    |__ Watch --> Predicate,...,Forward --> Controller
+       |    |__ Watch --> Predicate,...,Forward --> Controller
+       |__ Relay
+       |    |__ Watch --> Predicate,...,Forward --> Controller
+       |    |__ Watch --> Predicate,...,Forward --> Controller
+       |__ Relay
+            |__ Watch --> Predicate,...,Forward --> Controller
+            |__ Watch --> Predicate,...,Forward --> Controller
+
 //
 // Create a remote (cluster).
 remote := &watch.Remote{
@@ -22,24 +40,26 @@ remote.Start(
     })
 
 //
-// Setup a relay and watches.
-remote.Relay(
-    watch.Relay{
-        Controller: controller,
-        Object: object,
-    },
-    watch.Watch{
-        Object: &v1.Pod{},
-        Predicates: []predicate{
-            &predicate{},
+// Create a relay and install to a remote.
+relay := watch.Relay{
+    Controller: controller,
+    Object: object,
+    Watch: []watch.Watch{
+        watch.Watch{
+            Object: &v1.Pod{},
+            Predicates: []predicate{
+                &predicate{},
+            },
         },
-    },
-    watch.Watch{
-        Object: &v1.Secret{},
-        Predicates: []predicate{
-            &predicate{},
+        watch.Watch{
+            Object: &v1.Secret{},
+            Predicates: []predicate{
+                &predicate{},
+            },
         },
-    })
+    }
+}
+relay.Install(remote)
 
 //
 // Shutdown the remote.
@@ -47,11 +67,13 @@ remote.Shutdown()
 
 //
 // Add individual watch.
-remote.Watch(
-    &source.Kind{
-        Type: &v1.Secret{},
+w := watch.Watch{
+    Object: &v1.Secret{},
+    Predicates: []predicate{
+        &predicate{},
     },
-    &MyPredicate{})
+}
+w.Add(remote)
 
 //
 // Register your remote.
