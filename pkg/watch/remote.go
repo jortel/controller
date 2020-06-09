@@ -96,7 +96,7 @@ type Remote struct {
 	// REST configuration
 	RestCfg *rest.Config
 	// Relay (forward) watch events.
-	Relay *Relay
+	Relay []*Relay
 	// Manager.
 	manager manager.Manager
 	// Controller
@@ -127,8 +127,8 @@ func (r *Remote) Start(watch ...Watch) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	if r.Relay != nil {
-		err = r.Relay.setup()
+	for _, relay := range r.Relay {
+		err = relay.setup()
 		if err != nil {
 			return liberr.Wrap(err)
 		}
@@ -153,14 +153,14 @@ func (r *Remote) Watch(object runtime.Object, prds ...predicate.Predicate) error
 	if r.controller == nil {
 		return liberr.New("not started")
 	}
-	if r.Relay != nil {
-		prds = append(prds, r.Relay.predicate)
+	for _, relay := range r.Relay {
+		prds = append(prds, relay.predicate)
 	}
 	err := r.controller.Watch(
 		&source.Kind{
 			Type: object,
 		},
-		&handler.EnqueueRequestForObject{},
+		&nopHandler,
 		prds...)
 	if err != nil {
 		return liberr.Wrap(err)
@@ -176,6 +176,9 @@ func (r *Remote) Shutdown() {
 		recover()
 	}()
 	close(r.done)
+	for _, relay := range r.Relay {
+		relay.shutdown()
+	}
 }
 
 //
@@ -212,6 +215,16 @@ func (r *Relay) setup() error {
 }
 
 //
+// Shutdown the relay.
+func (r *Relay) shutdown() {
+	defer func() {
+		recover()
+	}()
+
+	close(r.predicate.Channel)
+}
+
+//
 // Watch.
 type Watch struct {
 	// An object (kind) watched.
@@ -232,22 +245,22 @@ type Forward struct {
 
 func (p *Forward) Create(e event.CreateEvent) bool {
 	p.forward()
-	return false
+	return true
 }
 
 func (p *Forward) Update(e event.UpdateEvent) bool {
 	p.forward()
-	return false
+	return true
 }
 
 func (p *Forward) Delete(e event.DeleteEvent) bool {
 	p.forward()
-	return false
+	return true
 }
 
 func (p *Forward) Generic(e event.GenericEvent) bool {
 	p.forward()
-	return false
+	return true
 }
 
 func (p Forward) forward() {
@@ -256,7 +269,6 @@ func (p Forward) forward() {
 	}()
 	p.Channel <- p.Event
 }
-
 //
 // Nop reconciler.
 type reconciler struct {
@@ -266,4 +278,12 @@ type reconciler struct {
 // Never called.
 func (r *reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	return reconcile.Result{}, nil
+}
+
+// Nop handler.
+var nopHandler = handler.EnqueueRequestsFromMapFunc{
+	ToRequests: handler.ToRequestsFunc(
+		func(a handler.MapObject) []reconcile.Request {
+			return []reconcile.Request{}
+		}),
 }
