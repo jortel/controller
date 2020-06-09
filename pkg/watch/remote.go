@@ -96,7 +96,9 @@ type Remote struct {
 	// REST configuration
 	RestCfg *rest.Config
 	// Relay (forward) watch events.
-	Relay []*Relay
+	Relays []*Relay
+	// Watch list.
+	watches []Watch
 	// Manager.
 	manager manager.Manager
 	// Controller
@@ -105,15 +107,20 @@ type Remote struct {
 	done chan struct{}
 	// started
 	started bool
+	// Protect internal state.
+	mutex sync.RWMutex
 }
 
 //
 // Start the remote.
 func (r *Remote) Start(watch ...Watch) error {
 	var err error
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	if r.started {
 		return nil
 	}
+	r.watches = watch
 	r.manager, err = manager.New(r.RestCfg, manager.Options{})
 	if err != nil {
 		return liberr.Wrap(err)
@@ -127,7 +134,7 @@ func (r *Remote) Start(watch ...Watch) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	for _, relay := range r.Relay {
+	for _, relay := range r.Relays {
 		err = relay.setup()
 		if err != nil {
 			return liberr.Wrap(err)
@@ -150,20 +157,37 @@ func (r *Remote) Start(watch ...Watch) error {
 //
 // Add a watch.
 func (r *Remote) Watch(object runtime.Object, prds ...predicate.Predicate) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	if r.controller == nil {
 		return liberr.New("not started")
 	}
-	for _, relay := range r.Relay {
-		prds = append(prds, relay.predicate)
+	return r.watch(
+		Watch{
+			Object:     object,
+			Predicates: prds,
+		})
+}
+
+//
+// Add a relay.
+func (r *Remote) Relay(relay *Relay, watch ...Watch) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.controller == nil {
+		return liberr.New("not started")
 	}
-	err := r.controller.Watch(
-		&source.Kind{
-			Type: object,
-		},
-		&nopHandler,
-		prds...)
-	if err != nil {
-		return liberr.Wrap(err)
+	for _, rel := range r.Relays {
+		if rel.Controller == relay.Controller {
+			return nil
+		}
+	}
+	r.Relays = append(r.Relays, relay)
+	for _, w := range append(r.watches, watch...) {
+		err := r.watch(w)
+		if err != nil {
+			return liberr.Wrap(err)
+		}
 	}
 
 	return nil
@@ -172,13 +196,39 @@ func (r *Remote) Watch(object runtime.Object, prds ...predicate.Predicate) error
 //
 // Shutdown the remote.
 func (r *Remote) Shutdown() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	defer func() {
 		recover()
 	}()
 	close(r.done)
-	for _, relay := range r.Relay {
+	for _, relay := range r.Relays {
 		relay.shutdown()
 	}
+}
+
+//
+// Add watch.
+func (r *Remote) watch(watch Watch) error {
+	for _, w := range r.watches {
+		if w.Object == watch.Object {
+			return nil
+		}
+	}
+	for _, relay := range r.Relays {
+		watch.Predicates = append(watch.Predicates, relay.predicate)
+	}
+	err := r.controller.Watch(
+		&source.Kind{
+			Type: watch.Object,
+		},
+		&nopHandler,
+		watch.Predicates...)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+
+	return nil
 }
 
 //
@@ -269,6 +319,7 @@ func (p Forward) forward() {
 	}()
 	p.Channel <- p.Event
 }
+
 //
 // Nop reconciler.
 type reconciler struct {

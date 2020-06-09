@@ -6,16 +6,6 @@ remote := &watch.Remote{
 }
 
 //
-// Create a remote (cluster) with relay to a controller.
-remote := &watch.Remote{
-    RestCfg: restCfg,
-    Relay: watch.Relay{
-        Controller: controller,
-        Object: object,
-    }
-}
-
-//
 // Add watch(s) and start the remote.
 remote.Start(
     watch.Watch{
@@ -23,6 +13,28 @@ remote.Start(
         Predicates: []predicate{
             &predicate{},
         },
+    },
+    watch.Watch{
+        Object: &v1.Secret{},
+        Predicates: []predicate{
+            &predicate{},
+        },
+    })
+
+//
+// Setup a relay and watches.
+remote.Relay(
+    watch.Relay{
+        Controller: controller,
+        Object: object,
+    },
+    watch.Watch{
+        Object: &v1.Pod{},
+        Predicates: []predicate{
+            &predicate{},
+        },
+    },
+    watch.Watch{
         Object: &v1.Secret{},
         Predicates: []predicate{
             &predicate{},
