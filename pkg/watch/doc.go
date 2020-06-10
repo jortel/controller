@@ -3,77 +3,81 @@
 Remotes represent a (remote) cluster.
 
 Remote
-  |__ Watch -> Predicate, ...
-  |__ Watch -> Predicate, ...
-  |__ Watch -> Predicate, ...
-  |__(router)
-       |__ Relay
-       |    |__ Watch -> Predicate,...,Forward -> Controller
-       |    |__ Watch -> Predicate,...,Forward -> Controller
-       |__ Relay
-       |    |__ Watch -> Predicate,...,Forward -> Controller
-       |    |__ Watch -> Predicate,...,Forward -> Controller
-       |__ Relay
-            |__ Watch -> Predicate,...,Forward -> Controller
-            |__ Watch -> Predicate,...,Forward -> Controller
+  |__ Watch -> Predicate,..,Router
+  |__ Watch -> Predicate,..,Router
+  |__ Watch -> Predicate,..,Router
+  (router)
+      |__Relay
+      |    |__ Watch -> Predicate -> Forward -> Controller
+      |    |__ Watch -> Predicate -> Forward -> Controller
+      |    |__ Watch -> Predicate -> Forward -> Controller
+      |
+      |__Relay
+           |__ Watch -> Predicate -> Forward -> Controller
+           |__ Watch -> Predicate -> Forward -> Controller
+           |__ Watch -> Predicate -> Forward -> Controller
+
+Example:
 
 //
 // Create a remote (cluster).
 remote := &watch.Remote{
     RestCfg: restCfg,
+    Watch:
 }
 
 //
-// Add watch(s) and start the remote.
-remote.Start(
-    watch.Watch{
-        Object: &v1.Pod{},
-        Predicates: []predicate{
-            &predicate{},
+// Create a remote and watch resources.
+remote := &watch.Remote{
+    RestCfg: restCfg,
+    Watch: []watch.Watch{
+        {
+            Object: &v1.Pod{},
+            Predicates: []predicate{
+                &predicate{},
+            },
         },
-    },
-    watch.Watch{
-        Object: &v1.Secret{},
-        Predicates: []predicate{
-            &predicate{},
+        {
+            Object: &v1.Secret{},
+            Predicates: []predicate{
+                &predicate{},
+            },
         },
-    })
+    }
+}
 
 //
-// Create a relay and add to a remote.
-remote.Relay(
-    &watch.Relay{
-        Object: object,
-        Controller: controller,
-        Watch: []watch.Watch{
-            watch.Watch{
-                Object: &v1.Pod{},
-                Predicates: []predicate{
-                    &predicate{},
+// Create a remote and relay events to a controller.
+remote := &watch.Remote{
+    RestCfg: restCfg,
+    Relay: []Relay{
+        {
+            Object: object,
+            Controller: controller,
+            Watch: []watch.Watch{
+                {
+                    Object: &v1.Pod{},
+                    Predicates: []predicate{
+                        &predicate{},
+                    },
                 },
-            },
-            watch.Watch{
-                Object: &v1.Secret{},
-                Predicates: []predicate{
-                    &predicate{},
+                {
+                    Object: &v1.Secret{},
+                    Predicates: []predicate{
+                        &predicate{},
+                    },
                 },
-            },
+            }
         }
-    })
+    }
+
+//
+// Start the remote.
+remote.Start()
 
 //
 // Shutdown the remote.
 remote.Shutdown()
-
-//
-// Add individual watch.
-remote.Watch(
-    watch.Watch{
-        Object: &v1.Secret{},
-        Predicates: []predicate{
-            &predicate{},
-        },
-    })
 
 //
 // Register your remote.

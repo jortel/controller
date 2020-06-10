@@ -96,12 +96,10 @@ type Remote struct {
 	Name string
 	// REST configuration
 	RestCfg *rest.Config
-	// Relay (forward) watch events.
-	relays []*Relay
+	// Relay list.
+	Relay []Relay
 	// Watch list.
-	watches []Watch
-	// Routing predicate.
-	router *Router
+	Watch []Watch
 	// Manager.
 	manager manager.Manager
 	// Controller
@@ -110,51 +108,39 @@ type Remote struct {
 	done chan struct{}
 	// started
 	started bool
-	// Protect internal state.
-	mutex sync.RWMutex
 }
 
 //
 // Start the remote.
-func (r *Remote) Start(watch ...Watch) error {
-	start := func() error {
-		var err error
-		r.mutex.Lock()
-		defer r.mutex.Unlock()
-		if r.started {
-			return nil
-		}
-		r.watches = watch
-		r.router = &Router{remote: r}
-		r.manager, err = manager.New(r.RestCfg, manager.Options{})
-		if err != nil {
-			return liberr.Wrap(err)
-		}
-		r.controller, err = controller.New(
-			r.Name+"-R",
-			r.manager,
-			controller.Options{
-				Reconciler: &reconciler{},
-			})
-		if err != nil {
-			return liberr.Wrap(err)
-		}
-
-		go r.manager.Start(r.done)
-		r.started = true
-
+func (r *Remote) Start() error {
+	var err error
+	if r.started {
 		return nil
 	}
-	err := start()
+	r.manager, err = manager.New(r.RestCfg, manager.Options{})
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	for _, w := range watch {
-		err := r.Watch(w)
-		if err != nil {
-			return liberr.Wrap(err)
-		}
+	r.controller, err = controller.New(
+		r.Name+"-R",
+		r.manager,
+		controller.Options{
+			Reconciler: &reconciler{},
+		})
+	if err != nil {
+		return liberr.Wrap(err)
 	}
+	err = r.relay()
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	err = r.watch()
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+
+	go r.manager.Start(r.done)
+	r.started = true
 
 	return nil
 }
@@ -162,75 +148,56 @@ func (r *Remote) Start(watch ...Watch) error {
 //
 // Shutdown the remote.
 func (r *Remote) Shutdown() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
 	defer func() {
 		recover()
 	}()
 	close(r.done)
-	for _, relay := range r.relays {
+	for i := range r.Relay {
+		relay := &r.Relay[i]
 		relay.shutdown()
 	}
 }
 
 //
-// Add watch.
-func (r *Remote) Watch(watch Watch) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	if r.controller == nil {
-		return liberr.New("not started")
-	}
-	for _, w := range r.watches {
-		if w.Object == watch.Object {
-			return nil
+// Setup watches.
+func (r *Remote) watch() error {
+	for i := range r.Watch {
+		watch := &r.Watch[i]
+		watch.Predicates = append(watch.Predicates, &Router{remote: r})
+		err := r.controller.Watch(
+			&source.Kind{Type: watch.Object},
+			&nopHandler,
+			watch.Predicates...)
+		if err != nil {
+			return liberr.Wrap(err)
 		}
-	}
-	watch.Predicates = append(watch.Predicates, r.router)
-	err := r.controller.Watch(
-		&source.Kind{
-			Type: watch.Object,
-		},
-		&nopHandler,
-		watch.Predicates...)
-	if err != nil {
-		return liberr.Wrap(err)
 	}
 
 	return nil
 }
 
 //
-// Add a relay.
-func (r *Remote) Relay(relay *Relay) error {
-	add := func() error {
-		r.mutex.Lock()
-		defer r.mutex.Unlock()
-		if r.controller == nil {
-			return liberr.New("not started")
-		}
-		for _, rel := range r.relays {
-			if rel.Controller == relay.Controller {
-				return nil
+// Setup relays.
+func (r *Remote) relay() error {
+	hasWatch := func(watch Watch) bool {
+		for i := range r.Watch {
+			w := &r.Watch[i]
+			if w.Match(watch) {
+				return true
 			}
 		}
-		err := relay.setup()
+		return false
+	}
+	for i := range r.Relay {
+		relay := &r.Relay[i]
+		err := relay.start()
 		if err != nil {
 			return liberr.Wrap(err)
 		}
-
-		r.relays = append(r.relays, relay)
-
-		return nil
-	}
-	err := add()
-	if err != nil {
-		return liberr.Wrap(err)
-	}
-	for _, w := range relay.Watch {
-		err := r.Watch(Watch{Object: w.Object})
-		if err != nil {
-			return liberr.Wrap(err)
+		for _, watch := range relay.Watch {
+			if !hasWatch(watch) {
+				r.Watch = append(r.Watch, watch)
+			}
 		}
 	}
 
@@ -255,7 +222,7 @@ type Relay struct {
 //   1. create the channel
 //   2. add the channel source to the controller.
 //   3. build the predicate.
-func (r *Relay) setup() error {
+func (r *Relay) start() error {
 	r.forward = &Forward{
 		Channel: make(chan event.GenericEvent),
 		Event: event.GenericEvent{
@@ -289,6 +256,20 @@ type Watch struct {
 	Object runtime.Object
 	// Optional list of predicates.
 	Predicates []predicate.Predicate
+}
+
+//
+// Equality
+func (w *Watch) Match(other interface{}) bool {
+	wt := reflect.TypeOf(w.Object)
+	if w2, cast := other.(Watch); cast {
+		return wt == reflect.TypeOf(w2.Object)
+	}
+	if object, cast := other.(runtime.Object); cast {
+		return wt == reflect.TypeOf(object)
+	}
+
+	return false
 }
 
 //
@@ -335,19 +316,24 @@ type Router struct {
 	remote *Remote
 }
 
-func (p *Router) Create(e event.CreateEvent) (rt bool) {
-	for _, relay := range p.remote.relays {
-	outer:
+func (p *Router) Create(e event.CreateEvent) (b bool) {
+	allowed := func(w Watch) bool {
+		for _, p := range w.Predicates {
+			if !p.Create(e) {
+				return false
+			}
+		}
+
+		return true
+	}
+	for _, relay := range p.remote.Relay {
 		for _, w := range relay.Watch {
-			if reflect.TypeOf(w.Object) != reflect.TypeOf(e.Object) {
-				continue outer
+			if !w.Match(e.Object) {
+				continue
 			}
-			for _, wp := range w.Predicates {
-				if !wp.Create(e) {
-					continue outer
-				}
+			if allowed(w) {
+				relay.forward.Create(e)
 			}
-			relay.forward.Create(e)
 		}
 	}
 
@@ -355,19 +341,23 @@ func (p *Router) Create(e event.CreateEvent) (rt bool) {
 }
 
 func (p *Router) Update(e event.UpdateEvent) (rt bool) {
-	for _, relay := range p.remote.relays {
-	outer:
+	allowed := func(w Watch) bool {
+		for _, p := range w.Predicates {
+			if !p.Update(e) {
+				return false
+			}
+		}
+
+		return true
+	}
+	for _, relay := range p.remote.Relay {
 		for _, w := range relay.Watch {
-			if reflect.TypeOf(w.Object) != reflect.TypeOf(e.ObjectNew) {
+			if !w.Match(e.ObjectNew) {
 				continue
 			}
-			for _, wp := range w.Predicates {
-				if !wp.Update(e) {
-					continue outer
-				}
+			if allowed(w) {
+				relay.forward.Update(e)
 			}
-			relay.forward.Update(e)
-			break
 		}
 	}
 
@@ -375,19 +365,23 @@ func (p *Router) Update(e event.UpdateEvent) (rt bool) {
 }
 
 func (p *Router) Delete(e event.DeleteEvent) (rt bool) {
-	for _, relay := range p.remote.relays {
-	outer:
+	allowed := func(w Watch) bool {
+		for _, p := range w.Predicates {
+			if !p.Delete(e) {
+				return false
+			}
+		}
+
+		return true
+	}
+	for _, relay := range p.remote.Relay {
 		for _, w := range relay.Watch {
-			if reflect.TypeOf(w.Object) != reflect.TypeOf(e.Object) {
+			if !w.Match(e.Object) {
 				continue
 			}
-			for _, wp := range w.Predicates {
-				if !wp.Delete(e) {
-					continue outer
-				}
+			if allowed(w) {
+				relay.forward.Delete(e)
 			}
-			relay.forward.Delete(e)
-			break
 		}
 	}
 
@@ -395,19 +389,23 @@ func (p *Router) Delete(e event.DeleteEvent) (rt bool) {
 }
 
 func (p *Router) Generic(e event.GenericEvent) (rt bool) {
-	for _, relay := range p.remote.relays {
-	outer:
+	allowed := func(w Watch) bool {
+		for _, p := range w.Predicates {
+			if !p.Generic(e) {
+				return false
+			}
+		}
+
+		return true
+	}
+	for _, relay := range p.remote.Relay {
 		for _, w := range relay.Watch {
-			if reflect.TypeOf(w.Object) != reflect.TypeOf(e.Object) {
+			if !w.Match(e.Object) {
 				continue
 			}
-			for _, wp := range w.Predicates {
-				if !wp.Generic(e) {
-					continue outer
-				}
+			if allowed(w) {
+				relay.forward.Generic(e)
 			}
-			relay.forward.Generic(e)
-			break
 		}
 	}
 
