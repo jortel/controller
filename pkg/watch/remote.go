@@ -150,7 +150,7 @@ func (r *Remote) Start(watch ...Watch) error {
 		return liberr.Wrap(err)
 	}
 	for _, w := range watch {
-		err := r.addWatch(w)
+		err := r.Watch(w)
 		if err != nil {
 			return liberr.Wrap(err)
 		}
@@ -175,7 +175,7 @@ func (r *Remote) Shutdown() {
 
 //
 // Add watch.
-func (r *Remote) addWatch(watch Watch) error {
+func (r *Remote) Watch(watch Watch) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if r.controller == nil {
@@ -202,7 +202,7 @@ func (r *Remote) addWatch(watch Watch) error {
 
 //
 // Add a relay.
-func (r *Remote) addRelay(relay *Relay) error {
+func (r *Remote) Relay(relay *Relay) error {
 	add := func() error {
 		r.mutex.Lock()
 		defer r.mutex.Unlock()
@@ -228,7 +228,7 @@ func (r *Remote) addRelay(relay *Relay) error {
 		return liberr.Wrap(err)
 	}
 	for _, w := range relay.Watch {
-		err := r.addWatch(Watch{Object: w.Object})
+		err := r.Watch(Watch{Object: w.Object})
 		if err != nil {
 			return liberr.Wrap(err)
 		}
@@ -273,12 +273,6 @@ func (r *Relay) setup() error {
 }
 
 //
-// Add to a remote.
-func (r *Relay) Install(remote *Remote) error {
-	return remote.addRelay(r)
-}
-
-//
 // Shutdown the relay.
 func (r *Relay) shutdown() {
 	defer func() {
@@ -295,12 +289,6 @@ type Watch struct {
 	Object runtime.Object
 	// Optional list of predicates.
 	Predicates []predicate.Predicate
-}
-
-//
-// Add to a remote.
-func (w Watch) Add(remote *Remote) error {
-	return remote.addWatch(w)
 }
 
 //
