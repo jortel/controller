@@ -88,21 +88,24 @@ func (r *Router) key(object meta.Object) Key {
 	}
 }
 
+//
+// Ensure a resource is being watched and relayed
+// to the specified controller.
 func (r *Router) Watch(
-	remote meta.Object,
+	object meta.Object,
 	subject Resource,
 	cnt controller.Controller,
-	object Resource,
+	target Resource,
 	predicates ...predicate.Predicate) error {
 	//
-	rmt, found := r.Find(remote)
+	rmt, found := r.Find(object)
 	if !found {
 		rmt = &Remote{}
 	}
 	relay := &Relay{
 		Controller: cnt,
 		Subject:    subject,
-		Object:     object,
+		Target:     target,
 	}
 
 	rmt.Relay(relay, predicates...)
@@ -112,10 +115,10 @@ func (r *Router) Watch(
 
 //
 // End a watch.
-func (r *Router) EndWatch(remote meta.Object, subject Resource, cnt controller.Controller) {
-	rmt, found := r.Find(remote)
+func (r *Router) EndWatch(object meta.Object, subject Resource, cnt controller.Controller) {
+	remote, found := r.Find(object)
 	if found {
-		rmt.EndRelay(cnt, subject)
+		remote.EndRelay(cnt, subject)
 	}
 }
 
@@ -257,10 +260,10 @@ func (r *Remote) hasRelay(relay *Relay) bool {
 // Controller relay.
 type Relay struct {
 	base source.Channel
-	// An object to be included in the relayed event.
-	Object Resource
 	// Subject (watched) resource.
 	Subject Resource
+	// An object to be included in the relayed event.
+	Target Resource
 	// Controller (target)
 	Controller controller.Controller
 	// Channel to relay events.
@@ -320,8 +323,8 @@ func (r *Relay) send() {
 		recover()
 	}()
 	event := event.GenericEvent{
-		Meta:   r.Object,
-		Object: r.Object,
+		Meta:   r.Target,
+		Object: r.Target,
 	}
 
 	r.channel <- event
