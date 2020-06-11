@@ -15,6 +15,7 @@ Remote
                 |_*
 
 Example:
+_______________________________
 
 import (
     rmt ".../remote"
@@ -117,5 +118,34 @@ rmt.Manager.EndRelay(
             Subject: &v1.Pod{},
         }
     })
+
+_______________________________
+
+Example Pattern:
+
+Cluster (CR) and controller.
+  The Cluster represents a real cluster.
+
+PodCounter (CR) and controller that keeps a count of pods on remote clusters.
+  The PodCounter (CR) has a reference to a `Cluster`.
+
+Cluster reconcile:
+  (created/update)
+    1. Get cluster.
+    2. Ensure a `Remote` created, configured and started
+       for the remote cluster.
+  (deleted)
+    1. Shutdown/delete the remote for the cluster.
+
+PodCounter watch predicate.
+  (created)
+    1. Ensure (remote) watch/relay for `Pod` is established.
+  (updated)
+    1. End (remote) watch/relay on the previous remote.
+    2. Ensure (remote) watch/relay for `Pod` is established
+       on the new remote.
+  (delete)
+    1. End watch/relay on the remote.
+
 */
 package remote
