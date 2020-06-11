@@ -3,19 +3,16 @@
 Remotes represent a (remote) cluster.
 
 Remote
-  |__ Watch -> Predicate,..,Router
-  |__ Watch -> Predicate,..,Router
-  |__ Watch -> Predicate,..,Router
-  (router)
-      |__Relay
-      |    |__ Watch -> Predicate -> Forward -> Controller
-      |    |__ Watch -> Predicate -> Forward -> Controller
-      |    |__ Watch -> Predicate -> Forward -> Controller
-      |
-      |__Relay
-           |__ Watch -> Predicate -> Forward -> Controller
-           |__ Watch -> Predicate -> Forward -> Controller
-           |__ Watch -> Predicate -> Forward -> Controller
+  |__ Watch -> Predicate,..,Forward [F]
+  |__ Watch -> Predicate,..,Forward [F]
+  |__ Watch -> Predicate,..,Forward [F]
+  |__ *
+.
+  [F] Forward ->|
+                |_Relay -> channel -> (watch)Controller
+                |_Relay -> channel -> (watch)Controller
+                |_Relay -> channel -> (watch)Controller
+                |_*
 
 Example:
 
