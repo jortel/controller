@@ -197,7 +197,11 @@ func (r *Remote) Shutdown() {
 	}()
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+	for _, relay := range r.relay {
+		relay.shutdown()
+	}
 	close(r.done)
+	r.started = false
 }
 
 //
