@@ -75,6 +75,11 @@ remote.Shutdown()
 rmt.Manager.Add(owner, remote)
 
 //
+// Ensure remote is contained in the manager
+// and started with this configuration.
+rmt.Manager.Ensure(owner, remote)
+
+//
 // Watch a resource using the manager.
 rmt.Manager.EnsureWatch(
     owner,

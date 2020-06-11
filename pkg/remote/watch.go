@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
+	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -49,16 +50,43 @@ type Container struct {
 }
 
 //
-// Add a remote.
-func (r *Container) Add(owner meta.Object, remote *Remote) {
+// Ensure the remote is in the container
+// and started.
+// When already contained:
+//   different rest configuration:
+//     - transfer workload to the new remote.
+//     - shutdown old remote.
+//     - start new remote.
+//   same reset configuration:
+//     - nothing
+func (r *Container) Ensure(owner meta.Object, new *Remote) (*Remote, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	key := r.key(owner)
 	if remote, found := r.remote[key]; found {
+		if remote.Equals(new) {
+			return remote, nil
+		}
+		new.TakeWorkload(remote)
 		remote.Shutdown()
-		delete(r.remote, key)
 	}
-	r.remote[key] = remote
+	err := new.Start()
+	if err != nil {
+		return new, liberr.Wrap(err)
+	}
+
+	r.remote[key] = new
+
+	return new, nil
+}
+
+//
+// Add a remote.
+func (r *Container) Add(owner meta.Object, new *Remote) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	key := r.key(owner)
+	r.remote[key] = new
 }
 
 //
@@ -67,10 +95,7 @@ func (r *Container) Delete(owner meta.Object) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	key := r.key(owner)
-	if remote, found := r.remote[key]; found {
-		remote.Shutdown()
-		delete(r.remote, key)
-	}
+	delete(r.remote, key)
 }
 
 //
@@ -163,6 +188,9 @@ func (r *Remote) Start() error {
 	if r.started {
 		return nil
 	}
+	if r.RestCfg == nil {
+		return liberr.New("not configured")
+	}
 	r.manager, err = manager.New(r.RestCfg, manager.Options{})
 	if err != nil {
 		return liberr.Wrap(err)
@@ -187,6 +215,40 @@ func (r *Remote) Start() error {
 	r.started = true
 
 	return nil
+}
+
+//
+// Take workloads.
+// This will Reset() the other.
+func (r *Remote) TakeWorkload(other *Remote) {
+	for _, watch := range other.watch {
+		watch.reset()
+		r.EnsureWatch(watch)
+	}
+	for _, relay := range other.relay {
+		relay.reset()
+		r.EnsureRelay(relay)
+	}
+
+	other.Reset()
+}
+
+//
+// Is the same remote.
+// Compared based on REST configuration.
+func (r *Remote) Equals(other *Remote) bool {
+	return reflect.DeepEqual(
+		other.RestCfg,
+		r.RestCfg)
+}
+
+//
+// Reset workloads.
+func (r *Remote) Reset() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.watch = []*Watch{}
+	r.relay = []*Relay{}
 }
 
 //
@@ -324,6 +386,9 @@ func (r *Relay) Predicates() []predicate.Predicate {
 	return r.Watch.Predicates
 }
 
+func (r *Relay) reset() {
+}
+
 //
 // Install
 func (r *Relay) Install() error {
@@ -401,6 +466,10 @@ type Watch struct {
 	started bool
 }
 
+func (w *Watch) reset() {
+	w.started = false
+}
+
 //
 // Match
 func (w *Watch) Match(r Resource) bool {
@@ -410,7 +479,7 @@ func (w *Watch) Match(r Resource) bool {
 //
 // Start watch.
 func (w *Watch) start(remote *Remote) error {
-	if w.started {
+	if w.started || !remote.started {
 		return nil
 	}
 	predicates := append(w.Predicates, &Forward{remote: remote})
