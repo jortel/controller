@@ -30,17 +30,17 @@ var Manager *Router
 
 func init() {
 	Manager = &Router{
-		remote: map[RmtKey]*Remote{},
+		remote: map[Key]*Remote{},
 	}
 }
 
 //
 // Map key.
-type RmtKey = core.ObjectReference
+type Key = core.ObjectReference
 
 type Router struct {
 	// Map content.
-	remote map[RmtKey]*Remote
+	remote map[Key]*Remote
 	// Protect the map.
 	mutex sync.RWMutex
 }
@@ -80,8 +80,8 @@ func (r *Router) Find(object meta.Object) (*Remote, bool) {
 	return remote, found
 }
 
-func (r *Router) key(object meta.Object) RmtKey {
-	return RmtKey{
+func (r *Router) key(object meta.Object) Key {
+	return Key{
 		Kind:      ref.ToKind(object),
 		Namespace: object.GetNamespace(),
 		Name:      object.GetName(),
