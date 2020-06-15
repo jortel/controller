@@ -48,7 +48,7 @@ type RmtMap struct {
 
 //
 // Add a remote.
-func (m *RmtMap) Add(object meta.Object, remote *Remote) {
+func (m *RmtMap) Add(object ref.Resource, remote *Remote) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	key := m.key(object)
@@ -61,7 +61,7 @@ func (m *RmtMap) Add(object meta.Object, remote *Remote) {
 
 //
 // Delete a remote.
-func (m *RmtMap) Delete(object meta.Object) {
+func (m *RmtMap) Delete(object ref.Resource) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	key := m.key(object)
@@ -73,7 +73,7 @@ func (m *RmtMap) Delete(object meta.Object) {
 
 //
 // Find a remote.
-func (m *RmtMap) Find(object meta.Object) (*Remote, bool) {
+func (m *RmtMap) Find(object ref.Resource) (*Remote, bool) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	key := m.key(object)
@@ -81,7 +81,7 @@ func (m *RmtMap) Find(object meta.Object) (*Remote, bool) {
 	return remote, found
 }
 
-func (m *RmtMap) key(object meta.Object) Key {
+func (m *RmtMap) key(object ref.Resource) Key {
 	return Key{
 		Kind:      ref.ToKind(object),
 		Namespace: object.GetNamespace(),

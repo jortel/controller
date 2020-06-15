@@ -1,9 +1,17 @@
 package ref
 
 import (
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"strings"
 )
+
+//
+// Resource
+type Resource interface {
+	runtime.Object
+	meta.Object
+}
 
 //
 // Labels
@@ -21,7 +29,7 @@ var (
 //
 // Build unique reference label for an object.
 // Format: <kind> = <uid>
-func Label(object v1.Object) (label, uid string) {
+func Label(object Resource) (label, uid string) {
 	label = string(object.GetUID())
 	uid = strings.ToLower(ToKind(object))
 	return
@@ -30,7 +38,7 @@ func Label(object v1.Object) (label, uid string) {
 //
 // Build reference labels for an object.
 // Includes both `Application` and unique labels.
-func Labels(object v1.Object) map[string]string {
+func Labels(object Resource) map[string]string {
 	label, uid := Label(object)
 	return map[string]string{
 		PartOfLabel: Application,

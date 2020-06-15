@@ -1,11 +1,12 @@
 package ref
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"reflect"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strings"
 )
 
 //
@@ -50,8 +51,11 @@ func GetRequests(a handler.MapObject) []reconcile.Request {
 
 //
 // Determine the resource Kind.
-func ToKind(resource interface{}) string {
-	t := reflect.TypeOf(resource).String()
-	p := strings.SplitN(t, ".", 2)
-	return string(p[len(p)-1])
+func ToKind(resource runtime.Object) string {
+	gvk, err := apiutil.GVKForObject(resource, scheme.Scheme)
+	if err != nil {
+		return gvk.Kind
+	}
+
+	return "unknown"
 }

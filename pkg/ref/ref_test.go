@@ -6,6 +6,7 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"testing"
@@ -30,6 +31,15 @@ func (t *_Thing) GetObjectKind() schema.ObjectKind {
 
 func (t *_Thing) DeepCopyObject() runtime.Object {
 	return t
+}
+
+func TestMain(m *testing.M) {
+	scheme.Scheme.AddKnownTypes(
+		schema.GroupVersion{
+			Group:   "test",
+			Version: "v1alpha1",
+		},
+		&_Thing{})
 }
 
 func TestFindRefs(t *testing.T) {
