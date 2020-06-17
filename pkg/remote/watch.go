@@ -7,7 +7,6 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/workqueue"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -36,6 +35,8 @@ func init() {
 	}
 }
 
+type Channel chan event.GenericEvent
+
 //
 // Map key.
 type Key = core.ObjectReference
@@ -45,7 +46,7 @@ type Key = core.ObjectReference
 type Container struct {
 	// Map content.
 	remote map[Key]*Remote
-	// Protect the map.
+	// Protect the state.
 	mutex sync.RWMutex
 }
 
@@ -110,13 +111,47 @@ func (r *Container) Find(owner meta.Object) (*Remote, bool) {
 
 //
 // Ensure a resource is being watched.
-func (r *Container) EnsureWatch(object meta.Object, watch *Watch) error {
-	remote, found := r.Find(object)
+func (r *Container) EnsureWatch(remoteOwner meta.Object, watch *Watch) error {
+	remote, found := r.Find(remoteOwner)
 	if !found {
 		remote = &Remote{}
+		r.Add(remoteOwner, remote)
+	}
+	err := remote.EnsureWatch(watch)
+	if err != nil {
+		return liberr.Wrap(err)
 	}
 
-	remote.EnsureWatch(watch)
+	return nil
+}
+
+//
+// Ensure relay group.
+func (r *Container) EnsureRelayDefinition(def *RelayDefinition) error {
+	for key, remote := range r.remote {
+		if !def.hasRemote(key) {
+			remote.EndRelay(
+				&Relay{
+					Channel: def.Channel,
+				})
+		}
+	}
+	for _, wDef := range def.Watch {
+		remote, found := r.Find(wDef.RemoteOwner)
+		if !found {
+			remote = &Remote{}
+			r.Add(wDef.RemoteOwner, remote)
+		}
+		relay := &Relay{
+			Channel: def.Channel,
+			Target:  def.Target,
+			Watch:   wDef.Watch,
+		}
+		err := remote.EnsureRelay(relay)
+		if err != nil {
+			return liberr.Wrap(err)
+		}
+	}
 
 	return nil
 }
@@ -124,24 +159,25 @@ func (r *Container) EnsureWatch(object meta.Object, watch *Watch) error {
 //
 // Ensure a resource is being watched and relayed
 // to the specified controller.
-func (r *Container) EnsureRelay(object meta.Object, relay *Relay) error {
-	remote, found := r.Find(object)
+func (r *Container) EnsureRelay(owner meta.Object, relay *Relay) error {
+	remote, found := r.Find(owner)
 	if !found {
 		remote = &Remote{}
+		r.Add(owner, remote)
 	}
-
-	remote.EnsureRelay(relay)
+	err := remote.EnsureRelay(relay)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
 
 	return nil
 }
 
 //
 // End a relay.
-// Must have:
-//   Relay.Controller
-//   Relay.Watch.Subject.
-func (r *Container) EndRelay(object meta.Object, relay *Relay) {
-	remote, found := r.Find(object)
+// Must have: Relay.Channel
+func (r *Container) EndRelay(owner meta.Object, relay *Relay) {
+	remote, found := r.Find(owner)
 	if !found {
 		return
 	}
@@ -149,12 +185,34 @@ func (r *Container) EndRelay(object meta.Object, relay *Relay) {
 	remote.EndRelay(relay)
 }
 
-func (r *Container) key(object meta.Object) Key {
+func (r *Container) key(owner meta.Object) Key {
 	return Key{
-		Kind:      ref.ToKind(object),
-		Namespace: object.GetNamespace(),
-		Name:      object.GetName(),
+		Kind:      ref.ToKind(owner),
+		Namespace: owner.GetNamespace(),
+		Name:      owner.GetName(),
 	}
+}
+
+type WatchDefinition struct {
+	RemoteOwner meta.Object
+	Watch []Watch
+}
+
+type RelayDefinition struct {
+	Channel Channel
+	Target  Resource
+	Watch   []WatchDefinition
+}
+
+func (r *RelayDefinition) hasRemote(key Key) bool {
+	cnt := Container{}
+	for _, w := range r.Watch {
+		if cnt.key(w.RemoteOwner) == key {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Represents a remote cluster.
@@ -259,9 +317,6 @@ func (r *Remote) Shutdown() {
 	}()
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	for _, relay := range r.relay {
-		relay.shutdown()
-	}
 	close(r.done)
 	r.started = false
 }
@@ -284,19 +339,15 @@ func (r *Remote) EnsureWatch(watch *Watch) error {
 func (r *Remote) EnsureRelay(relay *Relay) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if r.hasRelay(relay) {
-		return nil
+	if rl, found := r.findRelay(relay); found {
+		rl.Watch = relay.Watch
+		relay = rl
 	}
-	err := relay.Install()
-	if err != nil {
-		return liberr.Wrap(err)
-	}
-	watch := &Watch{
-		Subject: relay.Subject(),
-	}
-	err = r.ensureWatch(watch)
-	if err != nil {
-		return liberr.Wrap(err)
+	for _, watch := range relay.Watch {
+		err := r.ensureWatch(&Watch{Subject: watch.Subject})
+		if err != nil {
+			return liberr.Wrap(err)
+		}
 	}
 
 	r.relay = append(r.relay, relay)
@@ -307,15 +358,13 @@ func (r *Remote) EnsureRelay(relay *Relay) error {
 //
 // End relay.
 // Must have:
-//   Relay.Controller,
-//   Relay.Watch.Subject.
+//   Relay.Channel,
 func (r *Remote) EndRelay(relay *Relay) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	for i, found := range r.relay {
 		if found.Match(relay) {
 			r.relay = append(r.relay[:i], r.relay[i+1:]...)
-			found.shutdown()
 		}
 	}
 }
@@ -324,7 +373,8 @@ func (r *Remote) EndRelay(relay *Relay) {
 // Ensure watch.
 // Not re-entrant.
 func (r *Remote) ensureWatch(watch *Watch) error {
-	if r.hasWatch(watch.Subject) {
+	if w, found := r.findWatch(watch.Subject); found {
+		w.Predicates = watch.Predicates
 		return nil
 	}
 	r.watch = append(r.watch, watch)
@@ -337,27 +387,27 @@ func (r *Remote) ensureWatch(watch *Watch) error {
 }
 
 //
-// Has a watch.
-func (r *Remote) hasWatch(object Resource) bool {
-	for _, found := range r.watch {
-		if found.Match(object) {
-			return true
+// Find a watch.
+func (r *Remote) findWatch(object Resource) (*Watch, bool) {
+	for _, w := range r.watch {
+		if w.Match(object) {
+			return w, true
 		}
 	}
 
-	return false
+	return nil, false
 }
 
 //
-// Has a watch.
-func (r *Remote) hasRelay(relay *Relay) bool {
-	for _, found := range r.relay {
-		if found.Match(relay) {
-			return true
+// Find a relay.
+func (r *Remote) findRelay(relay *Relay) (*Relay, bool) {
+	for _, rl := range r.relay {
+		if rl.Match(relay) {
+			return rl, true
 		}
 	}
 
-	return false
+	return nil, false
 }
 
 //
@@ -366,69 +416,23 @@ type Relay struct {
 	base source.Channel
 	// Subject (watched) resource.
 	Target Resource
-	// Controller (target)
-	Controller controller.Controller
-	// Watch
-	Watch Watch
+	// Relay channel
+	Channel Channel
+	// Watches
+	Watch []Watch
 	// Channel to relay events.
-	channel chan event.GenericEvent
+	channel Channel
 	// stop
 	stop chan struct{}
-	// installed
-	installed bool
-}
-
-func (r *Relay) Subject() Resource {
-	return r.Watch.Subject
-}
-
-func (r *Relay) Predicates() []predicate.Predicate {
-	return r.Watch.Predicates
 }
 
 func (r *Relay) reset() {
 }
 
 //
-// Install
-func (r *Relay) Install() error {
-	if r.installed {
-		return nil
-	}
-	h := &handler.EnqueueRequestForObject{}
-	err := r.Controller.Watch(r, h, r.Watch.Predicates...)
-	if err != nil {
-		return liberr.Wrap(err)
-	}
-
-	r.installed = true
-
-	return nil
-}
-
-//
 // Match.
 func (r *Relay) Match(other *Relay) bool {
-	return r.Watch.Match(other.Watch.Subject) &&
-		r.Controller == other.Controller
-}
-
-//
-// Start the relay.
-func (r *Relay) Start(
-	handler handler.EventHandler,
-	queue workqueue.RateLimitingInterface,
-	predicates ...predicate.Predicate) error {
-	r.channel = make(chan event.GenericEvent)
-	r.stop = make(chan struct{})
-	r.base.InjectStopChannel(r.stop)
-	r.base.Source = r.channel
-	err := r.base.Start(handler, queue, predicates...)
-	if err != nil {
-		return liberr.Wrap(err)
-	}
-
-	return nil
+	return r.Channel == other.Channel
 }
 
 //
@@ -437,22 +441,10 @@ func (r *Relay) send() {
 	defer func() {
 		recover()
 	}()
-	event := event.GenericEvent{
+	r.channel <- event.GenericEvent{
 		Meta:   r.Target,
 		Object: r.Target,
 	}
-
-	r.channel <- event
-}
-
-//
-// Shutdown the relay.
-func (r *Relay) shutdown() {
-	defer func() {
-		recover()
-	}()
-	close(r.stop)
-	close(r.channel)
 }
 
 //
@@ -497,6 +489,54 @@ func (w *Watch) start(remote *Remote) error {
 }
 
 //
+// Create approved by predicates.
+func (w *Watch) create(e event.CreateEvent) bool {
+	for _, p := range w.Predicates {
+		if !p.Create(e) {
+			continue
+		}
+	}
+
+	return true
+}
+
+//
+// Update approved by predicates.
+func (w *Watch) update(e event.UpdateEvent) bool {
+	for _, p := range w.Predicates {
+		if !p.Update(e) {
+			continue
+		}
+	}
+
+	return true
+}
+
+//
+// Delete approved by predicates.
+func (w *Watch) delete(e event.DeleteEvent) bool {
+	for _, p := range w.Predicates {
+		if !p.Delete(e) {
+			continue
+		}
+	}
+
+	return true
+}
+
+//
+// Create approved by predicates.
+func (w *Watch) generic(e event.GenericEvent) bool {
+	for _, p := range w.Predicates {
+		if !p.Generic(e) {
+			continue
+		}
+	}
+
+	return true
+}
+
+//
 // Forward predicate
 type Forward struct {
 	// A parent remote.
@@ -504,9 +544,14 @@ type Forward struct {
 }
 
 func (p *Forward) Create(e event.CreateEvent) bool {
+	p.remote.mutex.Lock()
+	defer p.remote.mutex.Unlock()
 	subject := Watch{Subject: e.Object.(Resource)}
 	for _, relay := range p.remote.relay {
-		if subject.Match(relay.Subject()) {
+		for _, watch := range relay.Watch {
+			if !subject.Match(watch.Subject) || !watch.create(e) {
+				continue
+			}
 			relay.send()
 		}
 	}
@@ -515,9 +560,14 @@ func (p *Forward) Create(e event.CreateEvent) bool {
 }
 
 func (p *Forward) Update(e event.UpdateEvent) bool {
+	p.remote.mutex.Lock()
+	defer p.remote.mutex.Unlock()
 	subject := Watch{Subject: e.ObjectNew.(Resource)}
 	for _, relay := range p.remote.relay {
-		if subject.Match(relay.Subject()) {
+		for _, watch := range relay.Watch {
+			if !subject.Match(watch.Subject) || !watch.update(e) {
+				continue
+			}
 			relay.send()
 		}
 	}
@@ -526,9 +576,14 @@ func (p *Forward) Update(e event.UpdateEvent) bool {
 }
 
 func (p *Forward) Delete(e event.DeleteEvent) bool {
+	p.remote.mutex.Lock()
+	defer p.remote.mutex.Unlock()
 	subject := Watch{Subject: e.Object.(Resource)}
 	for _, relay := range p.remote.relay {
-		if subject.Match(relay.Subject()) {
+		for _, watch := range relay.Watch {
+			if !subject.Match(watch.Subject) || !watch.delete(e) {
+				continue
+			}
 			relay.send()
 		}
 	}
@@ -537,9 +592,14 @@ func (p *Forward) Delete(e event.DeleteEvent) bool {
 }
 
 func (p *Forward) Generic(e event.GenericEvent) bool {
+	p.remote.mutex.Lock()
+	defer p.remote.mutex.Unlock()
 	subject := Watch{Subject: e.Object.(Resource)}
 	for _, relay := range p.remote.relay {
-		if subject.Match(relay.Subject()) {
+		for _, watch := range relay.Watch {
+			if !subject.Match(watch.Subject) || !watch.generic(e) {
+				continue
+			}
 			relay.send()
 		}
 	}
@@ -564,4 +624,34 @@ var nopHandler = handler.EnqueueRequestsFromMapFunc{
 		func(a handler.MapObject) []reconcile.Request {
 			return []reconcile.Request{}
 		}),
+}
+
+
+var x = RelayDefinition{
+	Channel: nil,
+	Target: nil,
+	Watch: []WatchDefinition{
+		{
+			RemoteOwner: nil, // source cluster
+			Watch: []Watch{
+				{
+					Subject: nil,
+					Predicates: []predicate.Predicate{
+						nil,
+					},
+				},
+			},
+		},
+		{
+			RemoteOwner: nil, // destination cluster
+			Watch: []Watch{
+				{
+					Subject: nil,
+					Predicates: []predicate.Predicate{
+						nil,
+					},
+				},
+			},
+		},
+	},
 }

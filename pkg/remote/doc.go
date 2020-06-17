@@ -119,6 +119,39 @@ rmt.Manager.EndRelay(
         }
     })
 
+//
+// Ensure a RelayDefinition.
+
+def := &RelayDefinition{
+	Channel: aChannel,
+	Target: target,
+	Watch: []WatchDefinition{
+		{
+			RemoteOwner: nil, // source cluster
+			Watch: []Watch{
+				{
+					Subject: &v1.Pod{},
+					Predicates: []predicate.Predicate{
+						&predicate{},
+					},
+				},
+			},
+		},
+		{
+			RemoteOwner: nil, // destination cluster
+			Watch: []Watch{
+				{
+					Subject: &v1.Pod{},
+					Predicates: []predicate.Predicate{
+						&predicate{},
+					},
+				},
+			},
+		},
+	},
+}
+rmt.Manager.EnsureRelayDefinition(def)
+
 _______________________________
 
 Example Pattern:
