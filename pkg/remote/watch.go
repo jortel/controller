@@ -106,7 +106,7 @@ func (r *Container) Find(owner meta.Object) (*Remote, bool) {
 
 //
 // Ensure a resource is being watched.
-func (r *Container) EnsureWatch(owner meta.Object, watch *Watch) error {
+func (r *Container) EnsureWatch(owner meta.Object, watch Watch) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	key := r.key(owner)
@@ -313,7 +313,7 @@ func (r *Remote) Shutdown() {
 
 //
 // Watch.
-func (r *Remote) EnsureWatch(watch *Watch) error {
+func (r *Remote) EnsureWatch(watch Watch) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	err := r.ensureWatch(watch)
@@ -330,17 +330,17 @@ func (r *Remote) EnsureRelay(relay *Relay) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if rl, found := r.findRelay(relay); found {
-		rl.Watch = relay.Watch
+		rl.merge(relay)
 		relay = rl
+	} else {
+		r.relay = append(r.relay, relay)
 	}
 	for _, watch := range relay.Watch {
-		err := r.ensureWatch(&Watch{Subject: watch.Subject})
+		err := r.ensureWatch(Watch{Subject: watch.Subject})
 		if err != nil {
 			return liberr.Wrap(err)
 		}
 	}
-
-	r.relay = append(r.relay, relay)
 
 	return nil
 }
@@ -362,12 +362,12 @@ func (r *Remote) EndRelay(relay *Relay) {
 //
 // Ensure watch.
 // Not re-entrant.
-func (r *Remote) ensureWatch(watch *Watch) error {
+func (r *Remote) ensureWatch(watch Watch) error {
 	if w, found := r.findWatch(watch.Subject); found {
-		w.Predicates = watch.Predicates
+		w.merge(watch)
 		return nil
 	}
-	r.watch = append(r.watch, watch)
+	r.watch = append(r.watch, &watch)
 	err := watch.start(r)
 	if err != nil {
 		return liberr.Wrap(err)
@@ -382,7 +382,7 @@ func (r *Remote) ensureWatch(watch *Watch) error {
 func (r *Remote) TakeWorkload(other *Remote) {
 	for _, watch := range other.watch {
 		watch.reset()
-		r.EnsureWatch(watch)
+		r.EnsureWatch(*watch)
 	}
 	for _, relay := range other.relay {
 		relay.reset()
@@ -442,13 +442,37 @@ func (r *Relay) Match(other *Relay) bool {
 //
 // Send the event.
 func (r *Relay) send() {
-	//defer func() {
-	//	recover()
-	//}()
+	defer func() {
+		recover()
+	}()
 	r.Channel <- event.GenericEvent{
 		Meta:   r.Target,
 		Object: r.Target,
 	}
+}
+
+//
+// Merge another relay.
+func (r *Relay) merge(other *Relay) {
+	for _, watch := range other.Watch {
+		if w, found := r.findWatch(watch); !found {
+			r.Watch = append(r.Watch, watch)
+		} else {
+			w.merge(watch)
+		}
+	}
+}
+
+//
+// Find a watch
+func (r *Relay) findWatch(watch Watch) (*Watch, bool) {
+	for _, w := range r.Watch {
+		if w.Match(watch.Subject) {
+			return &w, true
+		}
+	}
+
+	return nil, false
 }
 
 //
@@ -490,6 +514,12 @@ func (w *Watch) start(remote *Remote) error {
 	w.started = true
 
 	return nil
+}
+
+//
+// Merge another watch.
+func (w *Watch) merge(other Watch) {
+	w.Predicates = other.Predicates
 }
 
 //
