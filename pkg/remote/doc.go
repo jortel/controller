@@ -72,17 +72,17 @@ remote.EndRelay(
 remote.Shutdown()
 
 //
-// Add remote to the manager.
-rmt.Manager.Add(owner, remote)
+// Add remote to the remote container.
+rmt.Container.Add(owner, remote)
 
 //
-// Ensure remote is contained in the manager
+// Ensure remote is in the remote container
 // and started with this configuration.
-rmt.Manager.Ensure(owner, remote)
+rmt.Container.Ensure(owner, remote)
 
 //
-// Watch a resource using the manager.
-rmt.Manager.EnsureWatch(
+// Watch a resource using the remote container.
+rmt.Container.EnsureWatch(
     owner,
     rmt.Watch{
         Subject: &v1.Pod{},
@@ -94,7 +94,7 @@ rmt.Manager.EnsureWatch(
 
 //
 // Watch a resource and relay events to a controller.
-rmt.Manager.EnsureRelay(
+rmt.Container.EnsureRelay(
     owner,
     rmt.Relay{
         Controller: controller,
@@ -110,7 +110,7 @@ rmt.Manager.EnsureRelay(
 
 //
 // End a relay.
-rmt.Manager.EndRelay(
+rmt.Container.EndRelay(
     owner,
     rmt.Relay{
         Controller: controller,
@@ -150,7 +150,7 @@ def := &RelayDefinition{
 		},
 	},
 }
-rmt.Manager.EnsureRelayDefinition(def)
+rmt.Container.EnsureRelayDefinition(def)
 
 _______________________________
 

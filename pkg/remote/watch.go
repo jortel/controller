@@ -27,10 +27,10 @@ type Resource interface {
 
 //
 // Global container
-var Manager *Container
+var RemoteContainer *Container
 
 func init() {
-	Manager = &Container{
+	RemoteContainer = &Container{
 		remote: map[Key]*Remote{},
 	}
 }
@@ -129,7 +129,7 @@ func (r *Container) EnsureWatch(remoteOwner meta.Object, watch *Watch) error {
 // Ensure relay group.
 func (r *Container) EnsureRelayDefinition(def *RelayDefinition) error {
 	for key, remote := range r.remote {
-		if !def.hasRemote(key) {
+		if !def.hasRemote(key, r.key) {
 			remote.EndRelay(
 				&Relay{
 					Channel: def.Channel,
@@ -195,7 +195,7 @@ func (r *Container) key(owner meta.Object) Key {
 
 type WatchDefinition struct {
 	RemoteOwner meta.Object
-	Watch []Watch
+	Watch       []Watch
 }
 
 type RelayDefinition struct {
@@ -204,10 +204,9 @@ type RelayDefinition struct {
 	Watch   []WatchDefinition
 }
 
-func (r *RelayDefinition) hasRemote(key Key) bool {
-	cnt := Container{}
+func (r *RelayDefinition) hasRemote(key Key, fn func(meta.Object) Key) bool {
 	for _, w := range r.Watch {
-		if cnt.key(w.RemoteOwner) == key {
+		if fn(w.RemoteOwner) == key {
 			return true
 		}
 	}
@@ -626,10 +625,9 @@ var nopHandler = handler.EnqueueRequestsFromMapFunc{
 		}),
 }
 
-
 var x = RelayDefinition{
 	Channel: nil,
-	Target: nil,
+	Target:  nil,
 	Watch: []WatchDefinition{
 		{
 			RemoteOwner: nil, // source cluster
