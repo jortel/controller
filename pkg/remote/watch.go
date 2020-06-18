@@ -159,29 +159,29 @@ func (r *Container) EndRelay(owner meta.Object, relay *Relay) {
 }
 
 //
-// Ensure relay group.
-func (r *Container) EnsureRelayDefinition(def *RelayDefinition) error {
+// Ensure relay plan.
+func (r *Container) EnsurePlan(plan *RelayPlan) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	for key, remote := range r.remote {
-		if !def.hasRemote(key, r.key) {
+		if !plan.hasRemote(key, r.key) {
 			remote.EndRelay(
 				&Relay{
-					Channel: def.Channel,
+					Channel: plan.Channel,
 				})
 		}
 	}
-	for _, wDef := range def.Watch {
-		key := r.key(wDef.RemoteOwner)
+	for _, wPlan := range plan.Watch {
+		key := r.key(wPlan.RemoteOwner)
 		remote, found := r.remote[key]
 		if !found {
 			remote = &Remote{}
 			r.remote[key] = remote
 		}
 		relay := &Relay{
-			Channel: def.Channel,
-			Target:  def.Target,
-			Watch:   wDef.Watch,
+			Channel: plan.Channel,
+			Target:  plan.Target,
+			Watch:   wPlan.Watch,
 		}
 		err := remote.EnsureRelay(relay)
 		if err != nil {
@@ -200,18 +200,31 @@ func (r *Container) key(owner meta.Object) Key {
 	}
 }
 
-type WatchDefinition struct {
+//
+// Watch plan.
+// Declare the planned watch.
+type WatchPlan struct {
+	// A remote owner CR.
 	RemoteOwner meta.Object
-	Watch       []Watch
+	// List of watch.
+	Watch []Watch
 }
 
-type RelayDefinition struct {
+//
+// Relay plan.
+// Declare planned relays.
+type RelayPlan struct {
+	// Event channel.
 	Channel chan event.GenericEvent
-	Target  Resource
-	Watch   []WatchDefinition
+	// Target CR.
+	Target Resource
+	// List of watch.
+	Watch []WatchPlan
 }
 
-func (r *RelayDefinition) hasRemote(key Key, fn func(meta.Object) Key) bool {
+//
+// Get whether the plan references a remote.
+func (r *RelayPlan) hasRemote(key Key, fn func(meta.Object) Key) bool {
 	for _, w := range r.Watch {
 		if fn(w.RemoteOwner) == key {
 			return true
@@ -221,6 +234,7 @@ func (r *RelayDefinition) hasRemote(key Key, fn func(meta.Object) Key) bool {
 	return false
 }
 
+//
 // Represents a remote cluster.
 type Remote struct {
 	// A name.
@@ -486,6 +500,8 @@ type Watch struct {
 	started bool
 }
 
+//
+// Reset the watch.
 func (w *Watch) reset() {
 	w.started = false
 }

@@ -120,12 +120,12 @@ rmt.Container.EndRelay(
     })
 
 //
-// Ensure a RelayDefinition.
+// Ensure a RelayPlan.
 
-def := &RelayDefinition{
+plan := &RelayPlan{
 	Channel: aChannel,
 	Target: target,
-	Watch: []WatchDefinition{
+	Watch: []WatchPlan{
 		{
 			RemoteOwner: nil, // source cluster
 			Watch: []Watch{
@@ -150,7 +150,7 @@ def := &RelayDefinition{
 		},
 	},
 }
-rmt.Container.EnsureRelayDefinition(def)
+rmt.Container.EnsurePlan(plan)
 
 _______________________________
 
