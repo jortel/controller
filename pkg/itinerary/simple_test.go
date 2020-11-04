@@ -1,7 +1,6 @@
 package itinerary
 
 import (
-	"errors"
 	"github.com/onsi/gomega"
 	"testing"
 )
@@ -28,6 +27,52 @@ func (p *TestPredicate) Evaluate(f Flag) (bool, error) {
 	return true, nil
 }
 
+func TestExport(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	itinerary := Itinerary{
+		Name: "Test",
+		Pipeline: Pipeline{
+			{
+				Name: "ONE",
+				Pipeline: Pipeline{
+					{Name: "A"},
+					{Name: "B"},
+					{Name: "C"},
+				},
+			},
+			{
+				Name: "TWO",
+				Pipeline: Pipeline{
+					{Name: "D"},
+					{Name: "E"},
+					{Name: "F"},
+				},
+			},
+			{Name: "THREE"},
+		},
+	}
+
+	pred := &TestPredicate{}
+	pl, err := itinerary.Export(pred)
+	g.Expect(err).To(gomega.BeNil())
+	g.Expect(len(pl)).To(gomega.Equal(len(itinerary.Pipeline)))
+
+	rt := pl.Runtime()
+	phase := "ONE"
+	current, err := rt.Get(phase)
+	g.Expect(err).To(gomega.BeNil())
+	g.Expect(current).ToNot(gomega.BeNil())
+	for {
+		next, done, err := rt.Next(phase)
+		if done || err != nil {
+			break
+		}
+		phase = next.Path
+	}
+}
+
+/*
 func TestGet(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -178,3 +223,4 @@ func TestProgress(t *testing.T) {
 		g.Expect(report.Completed).To(gomega.Equal(int64(i)))
 	}
 }
+*/
