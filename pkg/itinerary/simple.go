@@ -58,15 +58,13 @@ type Runtime struct {
 //
 // Get step.
 func (r *Runtime) Get(path string) (step *Step, err error) {
-	if index, found := r.index[path]; found {
-		if index < len(r.list) {
-			ref := r.list[index]
-			step = ref.Step
-			return
-		}
+	ref, err := r.get(path)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
 	}
 
-	err = liberr.Wrap(StepNotFound)
+	step = ref.Step
 
 	return
 }
@@ -84,6 +82,21 @@ func (r *Runtime) Next(path string) (next StepRef, done bool, err error) {
 	} else {
 		err = liberr.Wrap(StepNotFound)
 	}
+
+	return
+}
+
+//
+// Get stepRef.
+func (r *Runtime) get(path string) (ref StepRef, err error) {
+	if index, found := r.index[path]; found {
+		if index < len(r.list) {
+			ref = r.list[index]
+			return
+		}
+	}
+
+	err = liberr.Wrap(StepNotFound)
 
 	return
 }
@@ -140,13 +153,15 @@ func (r Pipeline) Runtime() (runtime *Runtime) {
 //
 // Itinerary step.
 type Step struct {
+	Timed
+	// Step name.
 	Name string
 	// Description
 	Description string
 	// Nested pipeline.
-	Pipeline
+	Pipeline Pipeline
 	// Progress report.
-	Progress
+	Progress Progress
 	// Error.
 	Error *Error
 	// Any of these conditions be satisfied for
