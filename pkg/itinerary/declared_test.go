@@ -35,9 +35,10 @@ func TestExport(t *testing.T) {
 		Pipeline: Pipeline{
 			{
 				Name: "ONE",
+				Description: "The one.",
 				Pipeline: Pipeline{
 					{Name: "A"},
-					{Name: "B"},
+					{Name: "B", All: p1},
 					{Name: "C"},
 				},
 			},
@@ -46,7 +47,15 @@ func TestExport(t *testing.T) {
 				Pipeline: Pipeline{
 					{Name: "D"},
 					{Name: "E"},
-					{Name: "F"},
+					{
+						Name: "F",
+						Pipeline: Pipeline{
+							{Name: "fa"},
+							{Name: "fb"},
+							{Name: "fc", All: p1},
+						},
+					},
+					{Name: "G"},
 				},
 			},
 			{Name: "THREE"},
@@ -54,11 +63,11 @@ func TestExport(t *testing.T) {
 	}
 
 	pred := &TestPredicate{}
-	pl, err := itinerary.Export(pred)
+	rtpl, err := itinerary.Export(pred)
 	g.Expect(err).To(gomega.BeNil())
-	g.Expect(len(pl)).To(gomega.Equal(len(itinerary.Pipeline)))
+	g.Expect(len(rtpl)).To(gomega.Equal(len(itinerary.Pipeline)))
 
-	rt := pl.Runtime()
+	rt := rtpl.Runtime()
 	phase := "ONE"
 	current, err := rt.Get(phase)
 	g.Expect(err).To(gomega.BeNil())

@@ -1,4 +1,4 @@
-package itinerary
+package runtime
 
 import "time"
 
