@@ -146,6 +146,8 @@ var (
 	PredicateTypeErr = errors.New("predicate type not valid for field")
 	// Invalid predicate value.
 	PredicateValueErr = errors.New("predicate value not valid")
+	// Patch filter error.
+	PatchFilterErr = errors.New("patch filter references unknown field")
 )
 
 //
@@ -286,6 +288,39 @@ func (t Table) Update(model interface{}) error {
 	}
 	t.SetPk(fields)
 	stmt, err := t.updateSQL(t.Name(model), fields)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	params := t.Params(fields)
+	r, err := t.DB.Exec(stmt, params...)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	nRows, err := r.RowsAffected()
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	if nRows == 0 {
+		return liberr.Wrap(NotFound)
+	}
+
+	return nil
+}
+
+// Patch the model in the DB.
+// Expects the primary key (PK) or natural keys to be set.
+// Only fields included in the filter are updated.
+func (t Table) Patch(model interface{}, filter PatchFilter) error {
+	fields, err := t.Fields(model)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	err = filter.Validate(fields)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	t.SetPk(fields)
+	stmt, err := t.patchSQL(t.Name(model), fields, filter)
 	if err != nil {
 		return liberr.Wrap(err)
 	}
@@ -568,6 +603,20 @@ func (t Table) KeyFields(fields []*Field) []*Field {
 }
 
 //
+// Get patch fields.
+// Patch fields must also be mutable.
+func (t Table) PatchFields(fields []*Field, filter PatchFilter) []*Field {
+	list := []*Field{}
+	for _, f := range t.MutableFields(fields) {
+		if filter.Match(f.Name) {
+			list = append(list, f)
+		}
+	}
+
+	return list
+}
+
+//
 // Get the PK field.
 func (t Table) PkField(fields []*Field) *Field {
 	for _, f := range fields {
@@ -648,6 +697,29 @@ func (t Table) updateSQL(table string, fields []*Field) (string, error) {
 		TmplData{
 			Table:  table,
 			Fields: t.MutableFields(fields),
+			Pk:     t.PkField(fields),
+		})
+	if err != nil {
+		return "", liberr.Wrap(err)
+	}
+
+	return bfr.String(), nil
+}
+
+//
+// Build model patch SQL.
+func (t Table) patchSQL(table string, fields []*Field, filter PatchFilter) (string, error) {
+	tpl := template.New("")
+	tpl, err := tpl.Parse(UpdateSQL)
+	if err != nil {
+		return "", liberr.Wrap(err)
+	}
+	bfr := &bytes.Buffer{}
+	err = tpl.Execute(
+		bfr,
+		TmplData{
+			Table:  table,
+			Fields: t.PatchFields(fields, filter),
 			Pk:     t.PkField(fields),
 		})
 	if err != nil {
@@ -1197,4 +1269,41 @@ func (l *ListOptions) Param(name string, value interface{}) string {
 // Get params referenced by the predicate.
 func (l *ListOptions) Params() []interface{} {
 	return l.params
+}
+
+//
+// Patch (filter).
+type PatchFilter map[string]bool
+
+//
+// Populate with field names.
+func (p PatchFilter) With(fields []string) {
+	for _, name := range fields {
+		p[name] = true
+	}
+}
+
+//
+// Validate.
+func (p PatchFilter) Validate(fields []*Field) (err error) {
+	valid := map[string]bool{}
+	for _, f := range fields {
+		valid[f.Name] = true
+	}
+	for name := range p {
+		if _, found := valid[name]; !found {
+			err = liberr.Wrap(PatchFilterErr)
+			break
+		}
+	}
+
+	return
+}
+
+//
+// Match filed name.
+// Matched names are included in the update.
+func (p PatchFilter) Match(name string) (found bool) {
+	_, found = p[name]
+	return
 }

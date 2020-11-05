@@ -345,6 +345,17 @@ func TestWatch(t *testing.T) {
 		err = DB.Update(object)
 		g.Expect(err).To(gomega.BeNil())
 	}
+	// Patch
+	for i := 0; i < N; i++ {
+		object := &TestObject{
+			ID:  i,
+			Age: 44,
+		}
+		err = DB.Update(object, "Age")
+		g.Expect(err).To(gomega.BeNil())
+		DB.Get(object)
+		g.Expect(object.Name).To(gomega.Equal("Fudd"))
+	}
 	// Handler C
 	handlerC := &TestHandler{name: "C"}
 	watchC, err := DB.Watch(&TestObject{}, handlerC)

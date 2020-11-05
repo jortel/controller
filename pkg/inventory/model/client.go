@@ -32,6 +32,8 @@ type DB interface {
 	// Get for update of the specified model.
 	GetForUpdate(Model) (*Tx, error)
 	// List models based on the type of slice.
+	// The predicates specified in the ListOptions
+	// are use to select the objects listed.
 	List(interface{}, ListOptions) error
 	// Count based on the specified model.
 	Count(Model, Predicate) (int64, error)
@@ -39,8 +41,10 @@ type DB interface {
 	Begin() (*Tx, error)
 	// Insert a model.
 	Insert(Model) error
-	// Update a model.
-	Update(Model) error
+	// Update the model.
+	// All fields are updated unless constrained
+	// by the `fields` argument.
+	Update(Model, ...string) error
 	// Delete a model.
 	Delete(Model) error
 	// Watch a model collection.
@@ -210,7 +214,9 @@ func (r *Client) Insert(model Model) error {
 
 //
 // Update the model.
-func (r *Client) Update(model Model) error {
+// All fields are updated unless constrained
+// by the `fields` argument.
+func (r *Client) Update(model Model, fields ...string) error {
 	r.Lock()
 	defer r.Unlock()
 	table := Table{}
@@ -226,7 +232,13 @@ func (r *Client) Update(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	err = table.Update(model)
+	if len(fields) > 0 {
+		filter := PatchFilter{}
+		filter.With(fields)
+		err = table.Patch(model, filter)
+	} else {
+		err = table.Update(model)
+	}
 	if err != nil {
 		return liberr.Wrap(err)
 	}
