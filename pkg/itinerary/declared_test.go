@@ -62,6 +62,40 @@ func TestExport(t *testing.T) {
 		},
 	}
 
+	itinerary = Itinerary{
+		Name: "Migration",
+		Pipeline: Pipeline{
+			{
+				Name:        "PreHook",
+				Description: "Run hook before migrating VM.",
+				Pipeline: Pipeline{
+					{Name: "Create"},
+					{Name: "WatchPod"},
+				},
+			},
+			{
+				Name:        "DiskTransfer",
+				Description: "Transfer hard disks.",
+				Pipeline: Pipeline{
+					{Name: "CreateImport"},
+					{Name: "WatchDV"},
+				},
+			},
+			{
+				Name:        "ImageConversion",
+				Description: "Convert VM image.",
+			},
+			{
+				Name:        "PostHook",
+				Description: "Run hook after migrating VM.",
+				Pipeline: Pipeline{
+					{Name: "Create"},
+					{Name: "WatchPod"},
+				},
+			},
+		},
+	}
+
 	pred := &TestPredicate{}
 	rtpl, err := itinerary.Export(pred)
 	g.Expect(err).To(gomega.BeNil())
