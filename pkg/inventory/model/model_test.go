@@ -174,27 +174,6 @@ func TestTransactions(t *testing.T) {
 	g.Expect(err).To(gomega.BeNil())
 }
 
-func TestGetForUpdate(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-	DB := New(
-		"/tmp/test.db",
-		&Label{},
-		&TestObject{})
-	err := DB.Open(true)
-	g.Expect(err).To(gomega.BeNil())
-	// Insert
-	object := &TestObject{
-		ID:   0,
-		Name: "Elmer",
-	}
-	err = DB.Insert(object)
-	g.Expect(err).To(gomega.BeNil())
-	tx, err := DB.GetForUpdate(object)
-	g.Expect(err).To(gomega.BeNil())
-	g.Expect(tx.ref).To(gomega.Equal(DB.(*Client).tx))
-	tx.Commit()
-}
-
 func TestList(t *testing.T) {
 	var err error
 	g := gomega.NewGomegaWithT(t)

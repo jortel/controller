@@ -29,8 +29,6 @@ type DB interface {
 	Close(bool) error
 	// Get the specified model.
 	Get(Model) error
-	// Get for update of the specified model.
-	GetForUpdate(Model) (*Tx, error)
 	// List models based on the type of slice.
 	List(interface{}, ListOptions) error
 	// Count based on the specified model.
@@ -126,24 +124,6 @@ func (r *Client) Close(purge bool) error {
 // Get the model.
 func (r *Client) Get(model Model) error {
 	return Table{r.db}.Get(model)
-}
-
-//
-// Get the model for update.
-// Locks the DB by beginning a transaction.
-// The caller MUST commit/end the returned Tx.
-func (r *Client) GetForUpdate(model Model) (*Tx, error) {
-	tx, err := r.Begin()
-	if err != nil {
-		return nil, liberr.Wrap(err)
-	}
-	err = Table{r.db}.Get(model)
-	if err != nil {
-		tx.End()
-		tx = nil
-	}
-
-	return tx, err
 }
 
 //
