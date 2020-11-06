@@ -74,20 +74,12 @@ type Model interface {
 	String() string
 	// Equal comparison.
 	Equals(other Model) bool
-	// Get labels.
-	// Optional and may return nil.
-	Labels() Labels
-}
-
-type Base struct {
-	// Primary key (digest).
-	PK string `sql:"pk"`
-	// The raw json-encoded k8s resource.
-	Object string `sql:""`
 }
 
 //
-// Get the primary key.
-func (m *Base) Pk() string {
-	return m.PK
+// Labeled
+type Labeled interface {
+	// Get labels.
+	// Optional and may return nil.
+	Labels() Labels
 }

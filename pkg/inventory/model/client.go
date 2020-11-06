@@ -294,16 +294,18 @@ func (r *Client) Journal() *Journal {
 //
 // Insert labels for the model into the DB.
 func (r *Client) insertLabels(table Table, model Model) error {
-	for l, v := range model.Labels() {
-		label := &Label{
-			Parent: model.Pk(),
-			Kind:   table.Name(model),
-			Name:   l,
-			Value:  v,
-		}
-		err := table.Insert(label)
-		if err != nil {
-			return liberr.Wrap(err)
+	if labeled, cast := model.(Labeled); cast {
+		for l, v := range labeled.Labels() {
+			label := &Label{
+				Parent: model.Pk(),
+				Kind:   table.Name(model),
+				Name:   l,
+				Value:  v,
+			}
+			err := table.Insert(label)
+			if err != nil {
+				return liberr.Wrap(err)
+			}
 		}
 	}
 
