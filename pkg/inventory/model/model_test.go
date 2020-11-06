@@ -48,20 +48,24 @@ type TestHandler struct {
 	deleted []int
 	err     []error
 	done    bool
+	event   []Event
 }
 
 func (w *TestHandler) Created(e Event) {
+	w.event = append(w.event, e)
 	if object, cast := e.Model.(*TestObject); cast {
 		w.created = append(w.created, object.ID)
 	}
 }
 
 func (w *TestHandler) Updated(e Event) {
+	w.event = append(w.event, e)
 	if object, cast := e.Model.(*TestObject); cast {
 		w.updated = append(w.updated, object.ID)
 	}
 }
 func (w *TestHandler) Deleted(e Event) {
+	w.event = append(w.event, e)
 	if object, cast := e.Model.(*TestObject); cast {
 		w.deleted = append(w.deleted, object.ID)
 	}
@@ -156,7 +160,8 @@ func TestTransactions(t *testing.T) {
 	tx, err := DB.Begin()
 	defer tx.End()
 	g.Expect(err).To(gomega.BeNil())
-	g.Expect(tx.ref).To(gomega.Equal(DB.(*Client).tx))
+	g.Expect(tx).To(gomega.Equal(DB.(*Client).tx))
+	g.Expect(tx.ref).To(gomega.Equal(DB.(*Client).tx.ref))
 	object := &TestObject{
 		ID:   0,
 		Name: "Elmer",
@@ -302,6 +307,8 @@ func TestWatch(t *testing.T) {
 	g.Expect(watchA).ToNot(gomega.BeNil())
 	N := 10
 	// Insert
+	tx, _ := DB.Begin()
+	tx.Origin = t
 	for i := 0; i < N; i++ {
 		object := &TestObject{
 			ID:   i,
@@ -310,6 +317,7 @@ func TestWatch(t *testing.T) {
 		err = DB.Insert(object)
 		g.Expect(err).To(gomega.BeNil())
 	}
+	tx.Commit()
 	// Handler B
 	handlerB := &TestHandler{name: "B"}
 	watchB, err := DB.Watch(&TestObject{}, handlerB)
@@ -351,6 +359,9 @@ func TestWatch(t *testing.T) {
 		} else {
 			break
 		}
+	}
+	for _, event := range handlerA.event[:N] {
+		g.Expect(event.Origin).To(gomega.Equal(t))
 	}
 }
 

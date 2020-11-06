@@ -62,7 +62,7 @@ type Client struct {
 	// Database connection.
 	db *sql.DB
 	// Current database transaction.
-	tx *sql.Tx
+	tx *Tx
 	// Journal
 	journal Journal
 }
@@ -155,8 +155,8 @@ func (r *Client) Begin() (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.tx = tx
-	return &Tx{client: r, ref: tx}, nil
+	r.tx = &Tx{client: r, ref: tx}
+	return r.tx, nil
 }
 
 //
@@ -170,7 +170,7 @@ func (r *Client) Insert(model Model) error {
 		defer r.dbMutex.Unlock()
 		table.DB = r.db
 	} else {
-		table.DB = r.tx
+		table.DB = r.tx.ref
 	}
 	err := table.Insert(model)
 	if err != nil {
@@ -180,7 +180,7 @@ func (r *Client) Insert(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Created(model)
+	r.journal.Created(r.origin(), model)
 	if r.tx == nil {
 		r.journal.Commit()
 	}
@@ -199,7 +199,7 @@ func (r *Client) Update(model Model) error {
 		defer r.dbMutex.Unlock()
 		table.DB = r.db
 	} else {
-		table.DB = r.tx
+		table.DB = r.tx.ref
 	}
 	current := r.journal.copy(model)
 	err := table.Get(current)
@@ -214,7 +214,7 @@ func (r *Client) Update(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Updated(current, model)
+	r.journal.Updated(r.tx, current, model)
 	if r.tx == nil {
 		r.journal.Commit()
 	}
@@ -233,7 +233,7 @@ func (r *Client) Delete(model Model) error {
 		defer r.dbMutex.Unlock()
 		table.DB = r.db
 	} else {
-		table.DB = r.tx
+		table.DB = r.tx.ref
 	}
 	err := table.Delete(model)
 	if err != nil {
@@ -243,7 +243,7 @@ func (r *Client) Delete(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Deleted(model)
+	r.journal.Deleted(r.tx, model)
 	if r.tx == nil {
 		r.journal.Commit()
 	}
@@ -358,14 +358,14 @@ func (r *Client) replaceLabels(table Table, model Model) error {
 func (r *Client) commit(tx *Tx) error {
 	r.Lock()
 	defer r.Unlock()
-	if r.tx == nil || r.tx != tx.ref {
+	if r.tx == nil || r.tx.ref != tx.ref {
 		return liberr.Wrap(TxInvalidError)
 	}
 	defer func() {
 		r.dbMutex.Unlock()
 		r.tx = nil
 	}()
-	err := r.tx.Commit()
+	err := r.tx.ref.Commit()
 	if err != nil {
 		return liberr.Wrap(err)
 	}
@@ -382,14 +382,14 @@ func (r *Client) commit(tx *Tx) error {
 func (r *Client) end(tx *Tx) error {
 	r.Lock()
 	defer r.Unlock()
-	if r.tx == nil || r.tx != tx.ref {
+	if r.tx == nil || r.tx.ref != tx.ref {
 		return liberr.Wrap(TxInvalidError)
 	}
 	defer func() {
 		r.dbMutex.Unlock()
 		r.tx = nil
 	}()
-	err := r.tx.Rollback()
+	err := r.tx.ref.Rollback()
 	if err != nil {
 		return liberr.Wrap(err)
 	}
@@ -400,8 +400,20 @@ func (r *Client) end(tx *Tx) error {
 }
 
 //
+// Transaction origin.
+func (r *Client) origin() (origin interface{}) {
+	if r.tx != nil {
+		origin = r.tx.Origin
+	}
+
+	return
+}
+
+//
 // Database transaction.
 type Tx struct {
+	// Transaction origin.
+	Origin interface{}
 	// Associated client.
 	client *Client
 	// Reference to sql.Tx.

@@ -18,6 +18,8 @@ var (
 //
 // Model event.
 type Event struct {
+	// Event origin.
+	Origin interface{}
 	// The event subject.
 	Model Model
 	// The event action (created|updated|deleted).
@@ -195,7 +197,7 @@ func (r *Journal) End(watch *Watch) {
 //
 // A model has been created.
 // Queue an event.
-func (r *Journal) Created(model Model) {
+func (r *Journal) Created(origin interface{}, model Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if !r.enabled {
@@ -204,6 +206,7 @@ func (r *Journal) Created(model Model) {
 	r.staged = append(
 		r.staged,
 		&Event{
+			Origin: origin,
 			Model:  r.copy(model),
 			Action: Created,
 		})
@@ -212,7 +215,7 @@ func (r *Journal) Created(model Model) {
 //
 // A model has been updated.
 // Queue an event.
-func (r *Journal) Updated(model Model, updated Model) {
+func (r *Journal) Updated(origin interface{}, model Model, updated Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if !r.enabled {
@@ -221,6 +224,7 @@ func (r *Journal) Updated(model Model, updated Model) {
 	r.staged = append(
 		r.staged,
 		&Event{
+			Origin:  origin,
 			Model:   r.copy(model),
 			Updated: r.copy(updated),
 			Action:  Updated,
@@ -230,7 +234,7 @@ func (r *Journal) Updated(model Model, updated Model) {
 //
 // A model has been deleted.
 // Queue an event.
-func (r *Journal) Deleted(model Model) {
+func (r *Journal) Deleted(origin interface{}, model Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if !r.enabled {
@@ -239,6 +243,7 @@ func (r *Journal) Deleted(model Model) {
 	r.staged = append(
 		r.staged,
 		&Event{
+			Origin: origin,
 			Model:  r.copy(model),
 			Action: Deleted,
 		})
