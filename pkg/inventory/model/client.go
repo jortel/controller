@@ -155,7 +155,11 @@ func (r *Client) Begin() (*Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.tx = &Tx{client: r, ref: tx}
+	r.tx = &Tx{
+		Annotations: Annotations{},
+		client:      r,
+		ref:         tx,
+	}
 	return r.tx, nil
 }
 
@@ -180,7 +184,7 @@ func (r *Client) Insert(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Created(r.origin(), model)
+	r.journal.Created(r.tx, model)
 	if r.tx == nil {
 		r.journal.Commit()
 	}
@@ -400,20 +404,10 @@ func (r *Client) end(tx *Tx) error {
 }
 
 //
-// Transaction origin.
-func (r *Client) origin() (origin interface{}) {
-	if r.tx != nil {
-		origin = r.tx.Origin
-	}
-
-	return
-}
-
-//
 // Database transaction.
 type Tx struct {
-	// Transaction origin.
-	Origin interface{}
+	// Annotations.
+	Annotations
 	// Associated client.
 	client *Client
 	// Reference to sql.Tx.
@@ -435,3 +429,7 @@ func (r *Tx) Commit() error {
 func (r *Tx) End() error {
 	return r.client.end(r)
 }
+
+//
+// Tx annotations.
+type Annotations map[string]interface{}

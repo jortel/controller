@@ -308,7 +308,7 @@ func TestWatch(t *testing.T) {
 	N := 10
 	// Insert
 	tx, _ := DB.Begin()
-	tx.Origin = t
+	tx.Annotations["Test"] = t
 	for i := 0; i < N; i++ {
 		object := &TestObject{
 			ID:   i,
@@ -361,7 +361,7 @@ func TestWatch(t *testing.T) {
 		}
 	}
 	for _, event := range handlerA.event[:N] {
-		g.Expect(event.Origin).To(gomega.Equal(t))
+		g.Expect(event.Annotations["Test"]).To(gomega.Equal(t))
 	}
 }
 
