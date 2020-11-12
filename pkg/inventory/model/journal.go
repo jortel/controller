@@ -9,7 +9,7 @@ import (
 
 //
 // Event Actions.
-var (
+const (
 	Created int8 = 0x01
 	Updated int8 = 0x02
 	Deleted int8 = 0x04
