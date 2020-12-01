@@ -1,6 +1,7 @@
 package itinerary
 
 import (
+	"github.com/konveyor/controller/pkg/itinerary/runtime"
 	"github.com/onsi/gomega"
 	"testing"
 )
@@ -34,7 +35,7 @@ func TestExport(t *testing.T) {
 		Name: "Test",
 		Pipeline: Pipeline{
 			{
-				Name: "ONE",
+				Name:        "ONE",
 				Description: "The one.",
 				Pipeline: Pipeline{
 					{Name: "A"},
@@ -62,44 +63,16 @@ func TestExport(t *testing.T) {
 		},
 	}
 
-	itinerary = Itinerary{
-		Name: "Migration",
-		Pipeline: Pipeline{
-			{
-				Name:        "PreHook",
-				Description: "Run hook before migrating VM.",
-				Pipeline: Pipeline{
-					{Name: "Create"},
-					{Name: "WatchPod"},
-				},
-			},
-			{
-				Name:        "DiskTransfer",
-				Description: "Transfer hard disks.",
-				Pipeline: Pipeline{
-					{Name: "CreateImport"},
-					{Name: "WatchDV"},
-				},
-			},
-			{
-				Name:        "ImageConversion",
-				Description: "Convert VM image.",
-			},
-			{
-				Name:        "PostHook",
-				Description: "Run hook after migrating VM.",
-				Pipeline: Pipeline{
-					{Name: "Create"},
-					{Name: "WatchPod"},
-				},
-			},
-		},
-	}
-
 	pred := &TestPredicate{}
 	rtpl, err := itinerary.Export(pred)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(rtpl)).To(gomega.Equal(len(itinerary.Pipeline)))
+
+	rtpl[0].Pipeline[1].Pipeline = runtime.Pipeline{
+		{Name: "p1", Parallel: true},
+		{Name: "p2", Parallel: true},
+		{Name: "p3", Parallel: true},
+	}
 
 	rt := rtpl.Runtime()
 	phase := "ONE"

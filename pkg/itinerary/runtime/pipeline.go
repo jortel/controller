@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	liberr "github.com/konveyor/controller/pkg/error"
+	core "k8s.io/api/core/v1"
 	"strings"
 )
 
@@ -24,15 +25,19 @@ type Step struct {
 	// Step name.
 	Name string `json:"name"`
 	// Description
-	Description string `json:"description"`
+	Description string `json:"description,omitempty"`
 	// Annotations
-	Annotations map[string]string `json:"annotations"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 	// Nested pipeline.
-	Pipeline Pipeline `json:"pipeline"`
+	Pipeline Pipeline `json:"pipeline,omitempty"`
 	// Progress.
 	Progress Progress `json:"progress"`
 	// Error.
 	Error *Error `json:"error"`
+	// Associated resources.
+	Resources []core.ObjectReference `json:"resources,omitempty"`
+	// Parallelized step.
+	Parallel bool `json:"parallel"`
 }
 
 //
@@ -132,6 +137,9 @@ func (r *Runtime) build(pipeline Pipeline) {
 	build = func(parent string, pl Pipeline) {
 		for i := range pl {
 			step := &pl[i]
+			if step.Parallel {
+				continue
+			}
 			path := r.Join(parent, step.Name)
 			r.list = append(
 				r.list,
