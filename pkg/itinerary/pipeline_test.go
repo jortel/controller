@@ -68,13 +68,17 @@ func TestExport(t *testing.T) {
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(rtpl)).To(gomega.Equal(len(itinerary.Pipeline)))
 
-	rtpl[0].Pipeline[1].Pipeline = runtime.Pipeline{
+	//
+	// Runtime.
+	rt := rtpl.Runtime()
+	// Add parallel pipeline to step C.
+	stepC, _ := rt.Get("ONE/C")
+	stepC.Pipeline = runtime.Pipeline{
 		{Name: "p1", Parallel: true},
 		{Name: "p2", Parallel: true},
 		{Name: "p3", Parallel: true},
 	}
-
-	rt := rtpl.Runtime()
+	// Run.
 	phase := "ONE"
 	current, err := rt.Get(phase)
 	g.Expect(err).To(gomega.BeNil())
