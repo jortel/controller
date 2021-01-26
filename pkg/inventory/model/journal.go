@@ -50,14 +50,14 @@ type Watch struct {
 	Handler EventHandler
 	// Model kind (name).
 	kind string
-	// Event queue.
+	// Signal queue.
 	queue chan int8
 	// Started
 	started bool
+	// Current event ID.
+	eventID int64
 	// DB
 	db DBTX
-	// event ID.
-	eventID int64
 }
 
 //
@@ -72,6 +72,7 @@ func (w *Watch) notify() {
 	defer func() {
 		recover()
 	}()
+
 	w.queue <- int8(0)
 }
 
@@ -182,7 +183,8 @@ type EventHistory struct {
 }
 
 //
-// Build.
+// Build with model(s).
+// Populate the model and updated fields.
 func (r *EventHistory) With(model, updated Model) {
 	r.Kind = Table{}.Name(model)
 	b, _ := json.Marshal(model)
@@ -199,7 +201,7 @@ type Journal struct {
 	mutex sync.RWMutex
 	// List of registered watches.
 	watchList []*Watch
-	// event ID.
+	// Current event ID.
 	eventID int64
 	// DB
 	db DBTX
@@ -247,7 +249,7 @@ func (r *Journal) End(watch *Watch) {
 func (r *Journal) Created(db DBTX, model Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if len(r.watchList) == 0 {
+	if !r.hasWatch(model) {
 		return
 	}
 	r.eventID++
@@ -263,7 +265,7 @@ func (r *Journal) Created(db DBTX, model Model) {
 func (r *Journal) Updated(db DBTX, model, updated Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if len(r.watchList) == 0 {
+	if !r.hasWatch(model) {
 		return
 	}
 	r.eventID++
@@ -279,7 +281,7 @@ func (r *Journal) Updated(db DBTX, model, updated Model) {
 func (r *Journal) Deleted(db DBTX, model Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if len(r.watchList) == 0 {
+	if !r.hasWatch(model) {
 		return
 	}
 	r.eventID++
@@ -297,6 +299,16 @@ func (r *Journal) Committed() {
 	for _, w := range r.watchList {
 		w.notify()
 	}
+}
+
+//
+// Determine if model has a watch.
+func (r *Journal) hasWatch(model Model) bool {
+	for _, w := range r.watchList {
+		return w.Match(Table{}.Name(model))
+	}
+
+	return false
 }
 
 //
