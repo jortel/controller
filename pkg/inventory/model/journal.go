@@ -1,8 +1,8 @@
 package model
 
 import (
+	"encoding/json"
 	liberr "github.com/konveyor/controller/pkg/error"
-	"github.com/konveyor/controller/pkg/ref"
 	"reflect"
 	"sync"
 )
@@ -48,54 +48,92 @@ type Watch struct {
 	Model Model
 	// Event handler.
 	Handler EventHandler
+	// Model kind (name).
+	kind string
 	// Event queue.
-	queue chan *Event
+	queue chan int8
 	// Started
 	started bool
+	// DB
+	db DBTX
+	// event ID.
+	eventID int64
 }
 
 //
 // Match by model `kind`.
-func (w *Watch) Match(model Model) bool {
-	return ref.ToKind(w.Model) == ref.ToKind(model)
+func (w *Watch) Match(kind string) bool {
+	return w.kind == kind
 }
 
 //
 // Queue event.
-func (w *Watch) notify(event *Event) {
-	if !w.Match(event.Model) {
-		return
-	}
+func (w *Watch) notify() {
 	defer func() {
 		recover()
 	}()
-	select {
-	case w.queue <- event:
-	default:
-		err := liberr.New("full queue, event discarded")
-		w.Handler.Error(err)
-	}
+	w.queue <- int8(0)
 }
 
 //
 // Run the watch.
 // Forward events to the `handler`.
-func (w *Watch) Start() {
+func (w *Watch) Start(list *reflect.Value) {
 	if w.started {
 		return
 	}
 	run := func() {
-		for event := range w.queue {
-			switch event.Action {
-			case Created:
-				w.Handler.Created(*event)
-			case Updated:
-				w.Handler.Updated(*event)
-			case Deleted:
-				w.Handler.Deleted(*event)
-			default:
-				w.Handler.Error(liberr.New("unknown action"))
+		for i := 0; i < list.Len(); i++ {
+			m := list.Index(i).Addr().Interface()
+			w.Handler.Created(
+				Event{
+					Model:  m.(Model),
+					Action: Created,
+				})
+		}
+		list = nil
+		for _ = range w.queue {
+			table := Table{DB: w.db}
+			history := []EventHistory{}
+			err := table.List(
+				&history,
+				ListOptions{
+					Predicate: Gt("ID", w.eventID),
+					Page:      &Page{Limit: 100},
+					Detail:    1,
+				})
+			if err != nil {
+				w.Handler.Error(err)
+				continue
 			}
+			for _, h := range history {
+				w.eventID = h.ID
+				if !w.Match(h.Kind) {
+					continue
+				}
+				event := w.event(h)
+				switch event.Action {
+				case Created:
+					w.Handler.Created(Event{
+						Model:  event.Model.(Model),
+						Action: event.Action,
+					})
+				case Updated:
+					w.Handler.Updated(Event{
+						Model:   event.Model.(Model),
+						Updated: event.Updated.(Model),
+						Action:  event.Action,
+					})
+				case Deleted:
+					w.Handler.Deleted(Event{
+						Model:  event.Model.(Model),
+						Action: event.Action,
+					})
+				default:
+					w.Handler.Error(liberr.New("unknown action"))
+				}
+			}
+
 		}
 		w.Handler.End()
 	}
@@ -111,46 +149,56 @@ func (w *Watch) End() {
 }
 
 //
+// Build an event.
+func (w *Watch) event(h EventHistory) Event {
+	model := newModel(w.Model)
+	updated := newModel(w.Model)
+	_ = json.Unmarshal([]byte(h.Model), &model)
+	_ = json.Unmarshal([]byte(h.Updated), &updated)
+	return Event{
+		Action:  h.Action,
+		Model:   model,
+		Updated: updated,
+	}
+}
+
+//
+// Event history.
+type EventHistory struct {
+	// ID
+	ID int64 `sql:"pk"`
+	// Model kind.
+	Kind string `sql:""`
+	// The event subject.
+	Model string `sql:""`
+	// The event action.
+	Action int8 `sql:""`
+	// The updated model.
+	Updated string `sql:""`
+}
+
+//
+// Build.
+func (r *EventHistory) With(model, updated Model) {
+	r.Kind = Table{}.Name(model)
+	b, _ := json.Marshal(model)
+	r.Model = string(b)
+	if updated != nil {
+		b, _ = json.Marshal(updated)
+		r.Updated = string(b)
+	}
+}
+
+//
 // Event manager.
 type Journal struct {
 	mutex sync.RWMutex
 	// List of registered watches.
-	watches []*Watch
-	// Queue of staged events.
-	staged []*Event
-	// Enabled.
-	enabled bool
-}
-
-//
-// The journal is enabled.
-// Must be enabled for watch models.
-func (r *Journal) Enabled() bool {
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-	return r.enabled
-}
-
-//
-// Enable the journal.
-func (r *Journal) Enable() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	r.enabled = true
-}
-
-//
-// Disable the journal.
-// End all watches and discard staged events.
-func (r *Journal) Disable() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	for _, w := range r.watches {
-		w.End()
-	}
-	r.watches = []*Watch{}
-	r.staged = []*Event{}
-	r.enabled = false
+	watchList []*Watch
+	// event ID.
+	eventID int64
+	// DB
+	db DBTX
 }
 
 //
@@ -160,15 +208,15 @@ func (r *Journal) Disable() {
 func (r *Journal) Watch(model Model, handler EventHandler) (*Watch, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if !r.enabled {
-		return nil, liberr.New("disabled")
-	}
 	watch := &Watch{
 		Handler: handler,
 		Model:   model,
+		kind:    Table{}.Name(model),
+		queue:   make(chan int8, 3),
+		eventID: r.eventID,
+		db:      r.db,
 	}
-	r.watches = append(r.watches, watch)
-	watch.queue = make(chan *Event, 10000)
+	r.watchList = append(r.watchList, watch)
 	return watch, nil
 }
 
@@ -177,11 +225,8 @@ func (r *Journal) Watch(model Model, handler EventHandler) (*Watch, error) {
 func (r *Journal) End(watch *Watch) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if !r.enabled {
-		return
-	}
 	kept := []*Watch{}
-	for _, w := range r.watches {
+	for _, w := range r.watchList {
 		if w != watch {
 			kept = append(kept, w)
 			continue
@@ -189,95 +234,70 @@ func (r *Journal) End(watch *Watch) {
 		w.End()
 	}
 
-	r.watches = kept
+	r.watchList = kept
 }
 
 //
 // A model has been created.
 // Queue an event.
-func (r *Journal) Created(model Model) {
+func (r *Journal) Created(db DBTX, model Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if !r.enabled {
+	if len(r.watchList) == 0 {
 		return
 	}
-	r.staged = append(
-		r.staged,
-		&Event{
-			Model:  r.copy(model),
-			Action: Created,
-		})
+	r.eventID++
+	table := Table{DB: db}
+	event := &EventHistory{ID: r.eventID, Action: Created}
+	event.With(model, nil)
+	_ = table.Insert(event)
 }
 
 //
 // A model has been updated.
 // Queue an event.
-func (r *Journal) Updated(model Model, updated Model) {
+func (r *Journal) Updated(db DBTX, model, updated Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if !r.enabled {
+	if len(r.watchList) == 0 {
 		return
 	}
-	r.staged = append(
-		r.staged,
-		&Event{
-			Model:   r.copy(model),
-			Updated: r.copy(updated),
-			Action:  Updated,
-		})
+	r.eventID++
+	table := Table{DB: db}
+	event := &EventHistory{ID: r.eventID, Action: Updated}
+	event.With(model, updated)
+	_ = table.Insert(event)
 }
 
 //
 // A model has been deleted.
 // Queue an event.
-func (r *Journal) Deleted(model Model) {
+func (r *Journal) Deleted(db DBTX, model Model) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if !r.enabled {
+	if len(r.watchList) == 0 {
 		return
 	}
-	r.staged = append(
-		r.staged,
-		&Event{
-			Model:  r.copy(model),
-			Action: Deleted,
-		})
+	r.eventID++
+	table := Table{DB: db}
+	event := &EventHistory{ID: r.eventID, Action: Deleted}
+	event.With(model, nil)
+	_ = table.Insert(event)
 }
 
 //
-// Commit staged events and notify handlers.
-func (r *Journal) Commit() {
+// Transaction committed.
+func (r *Journal) Committed() {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if !r.enabled {
-		return
+	for _, w := range r.watchList {
+		w.notify()
 	}
-	for _, event := range r.staged {
-		for _, w := range r.watches {
-			w.notify(event)
-		}
-	}
-
-	r.staged = []*Event{}
 }
 
 //
-// Discard staged events.
-func (r *Journal) Unstage() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	if !r.enabled {
-		return
-	}
-
-	r.staged = []*Event{}
-}
-
-//
-// Copy the model.
-// The model is a pointer must be protected against being
-// changed at it origin or by the handlers.
-func (r *Journal) copy(model Model) Model {
+// New model.
+func  newModel(model Model) Model {
 	mt := reflect.TypeOf(model)
 	mv := reflect.ValueOf(model)
 	switch mt.Kind() {
@@ -286,6 +306,5 @@ func (r *Journal) copy(model Model) Model {
 		mv = mv.Elem()
 	}
 	new := reflect.New(mt).Elem()
-	new.Set(mv)
 	return new.Addr().Interface().(Model)
 }

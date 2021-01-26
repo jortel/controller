@@ -409,7 +409,6 @@ func TestWatch(t *testing.T) {
 		&TestObject{})
 	err := DB.Open(true)
 	g.Expect(err).To(gomega.BeNil())
-	DB.Journal().Enable()
 	// Handler A
 	handlerA := &TestHandler{name: "A"}
 	watchA, err := DB.Watch(&TestObject{}, handlerA)
@@ -477,7 +476,6 @@ func TestMutatingWatch(t *testing.T) {
 		&TestObject{})
 	err := DB.Open(true)
 	g.Expect(err).To(gomega.BeNil())
-	DB.Journal().Enable()
 	// Handler A
 	handlerA := &MutatingHandler{
 		name: "A",

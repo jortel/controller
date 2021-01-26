@@ -71,7 +71,10 @@ func (r *Client) Open(purge bool) error {
 		panic(err)
 	}
 	statements := []string{Pragma}
-	r.models = append(r.models, &Label{})
+	r.models = append(
+		r.models,
+		&EventHistory{},
+		&Label{})
 	for _, m := range r.models {
 		ddl, err := Table{}.DDL(m)
 		if err != nil {
@@ -87,6 +90,7 @@ func (r *Client) Open(purge bool) error {
 		}
 	}
 
+	r.journal.db = db
 	r.db = db
 
 	return nil
@@ -99,7 +103,6 @@ func (r *Client) Close(purge bool) error {
 	if r.db == nil {
 		return nil
 	}
-	r.journal.Disable()
 	err := r.db.Close()
 	if err != nil {
 		return liberr.Wrap(err)
@@ -168,8 +171,8 @@ func (r *Client) Insert(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Created(model)
-	r.journal.Commit()
+	r.journal.Created(r.db, model)
+	r.journal.Committed()
 
 	return nil
 }
@@ -180,7 +183,7 @@ func (r *Client) Update(model Model) error {
 	r.dbMutex.Lock()
 	defer r.dbMutex.Unlock()
 	table := Table{r.db}
-	current := r.journal.copy(model)
+	current := newModel(model)
 	err := table.Get(current)
 	if err != nil {
 		return liberr.Wrap(err)
@@ -193,8 +196,8 @@ func (r *Client) Update(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Updated(current, model)
-	r.journal.Commit()
+	r.journal.Updated(r.db, current, model)
+	r.journal.Committed()
 
 	return nil
 }
@@ -213,8 +216,8 @@ func (r *Client) Delete(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Deleted(model)
-	r.journal.Commit()
+	r.journal.Deleted(r.db, model)
+	r.journal.Committed()
 
 	return nil
 }
@@ -237,16 +240,7 @@ func (r *Client) Watch(model Model, handler EventHandler) (*Watch, error) {
 		return nil, liberr.Wrap(err)
 	}
 	list := listPtr.Elem()
-	for i := 0; i < list.Len(); i++ {
-		m := list.Index(i).Addr().Interface()
-		watch.notify(
-			&Event{
-				Model:  m.(Model),
-				Action: Created,
-			})
-	}
-
-	watch.Start()
+	watch.Start(&list)
 
 	return watch, nil
 }
@@ -308,7 +302,7 @@ func (r *Tx) Insert(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Created(model)
+	r.journal.Created(r.real, model)
 
 	return nil
 }
@@ -317,7 +311,7 @@ func (r *Tx) Insert(model Model) error {
 // Update the model.
 func (r *Tx) Update(model Model) error {
 	table := Table{r.real}
-	current := r.journal.copy(model)
+	current := newModel(model)
 	err := table.Get(current)
 	if err != nil {
 		return liberr.Wrap(err)
@@ -330,7 +324,7 @@ func (r *Tx) Update(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Updated(current, model)
+	r.journal.Updated(r.real, current, model)
 
 	return nil
 }
@@ -347,7 +341,7 @@ func (r *Tx) Delete(model Model) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	r.journal.Deleted(model)
+	r.journal.Deleted(r.real, model)
 
 	return nil
 }
@@ -370,7 +364,7 @@ func (r *Tx) Commit() (err error) {
 		return
 	}
 
-	r.journal.Commit()
+	r.journal.Committed()
 
 	return
 }
@@ -392,8 +386,6 @@ func (r *Tx) End() (err error) {
 		err = liberr.Wrap(err)
 		return
 	}
-
-	r.journal.Unstage()
 
 	return
 }
