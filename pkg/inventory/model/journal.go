@@ -93,47 +93,51 @@ func (w *Watch) Start(list *reflect.Value) {
 		}
 		list = nil
 		for _ = range w.queue {
-			table := Table{DB: w.db}
-			history := []EventHistory{}
-			err := table.List(
-				&history,
-				ListOptions{
-					Predicate: Gt("ID", w.eventID),
-					Page:      &Page{Limit: 100},
-					Detail:    1,
-				})
-			if err != nil {
-				w.Handler.Error(err)
-				continue
-			}
-			for _, h := range history {
-				w.eventID = h.ID
-				if !w.Match(h.Kind) {
-					continue
+			for {
+				table := Table{DB: w.db}
+				batch := []EventHistory{}
+				err := table.List(
+					&batch,
+					ListOptions{
+						Predicate: Gt("ID", w.eventID),
+						Page:      &Page{Limit: 100},
+						Detail:    1,
+					})
+				if err != nil {
+					w.Handler.Error(err)
+					break
 				}
-				event := w.event(h)
-				switch event.Action {
-				case Created:
-					w.Handler.Created(Event{
-						Model:  event.Model.(Model),
-						Action: event.Action,
-					})
-				case Updated:
-					w.Handler.Updated(Event{
-						Model:   event.Model.(Model),
-						Updated: event.Updated.(Model),
-						Action:  event.Action,
-					})
-				case Deleted:
-					w.Handler.Deleted(Event{
-						Model:  event.Model.(Model),
-						Action: event.Action,
-					})
-				default:
-					w.Handler.Error(liberr.New("unknown action"))
+				if len(batch) == 0 {
+					break
+				}
+				for _, h := range batch {
+					w.eventID = h.ID
+					if !w.Match(h.Kind) {
+						continue
+					}
+					event := w.event(h)
+					switch event.Action {
+					case Created:
+						w.Handler.Created(Event{
+							Model:  event.Model.(Model),
+							Action: event.Action,
+						})
+					case Updated:
+						w.Handler.Updated(Event{
+							Model:   event.Model.(Model),
+							Updated: event.Updated.(Model),
+							Action:  event.Action,
+						})
+					case Deleted:
+						w.Handler.Deleted(Event{
+							Model:  event.Model.(Model),
+							Action: event.Action,
+						})
+					default:
+						w.Handler.Error(liberr.New("unknown action"))
+					}
 				}
 			}
-
 		}
 		w.Handler.End()
 	}
