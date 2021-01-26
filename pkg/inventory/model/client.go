@@ -37,8 +37,6 @@ type DB interface {
 	Watch(Model, EventHandler) (*Watch, error)
 	// End a watch.
 	EndWatch(watch *Watch)
-	// The journal
-	Journal() *Journal
 }
 
 //
@@ -52,10 +50,10 @@ type Client struct {
 	path string
 	// Model
 	models []interface{}
-	// Database connection.
-	db *sql.DB
 	// Journal
 	journal Journal
+	// Database connection.
+	db *sql.DB
 }
 
 //
@@ -249,12 +247,6 @@ func (r *Client) Watch(model Model, handler EventHandler) (*Watch, error) {
 // End watch.
 func (r *Client) EndWatch(watch *Watch) {
 	r.journal.End(watch)
-}
-
-//
-// The associated journal.
-func (r *Client) Journal() *Journal {
-	return &r.journal
 }
 
 //

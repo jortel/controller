@@ -1,6 +1,7 @@
 package model
 
 import (
+	"database/sql"
 	"encoding/json"
 	liberr "github.com/konveyor/controller/pkg/error"
 	"reflect"
@@ -182,6 +183,22 @@ type EventHistory struct {
 	Updated string `sql:""`
 }
 
+func (r *EventHistory) Pk() string {
+	return ""
+}
+
+func (r *EventHistory) String() string {
+	return ""
+}
+
+func (r *EventHistory) Equals(other Model) bool {
+	return false
+}
+
+func (r *EventHistory) Labels() Labels {
+	return nil
+}
+
 //
 // Build with model(s).
 // Populate the model and updated fields.
@@ -302,6 +319,43 @@ func (r *Journal) Committed() {
 }
 
 //
+// Prune history.
+func (r *Journal) prune(db *sql.DB) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	eventID := int64(0)
+	for _, w := range r.watchList {
+		if w.eventID > eventID {
+			eventID = w.eventID
+		}
+	}
+	history := []EventHistory{}
+	table := Table{DB: db}
+	err := table.List(
+		&history,
+		ListOptions{
+			Predicate: Lt("ID", eventID),
+		})
+	if err != nil {
+		return
+	}
+	if len(history) == 0 {
+		return
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = tx.Commit()
+	}()
+	table = Table{DB: tx}
+	for _, h := range history {
+		_ = table.Delete(&h)
+	}
+}
+
+//
 // Determine if model has a watch.
 func (r *Journal) hasWatch(model Model) bool {
 	for _, w := range r.watchList {
@@ -313,7 +367,7 @@ func (r *Journal) hasWatch(model Model) bool {
 
 //
 // New model.
-func  newModel(model Model) Model {
+func newModel(model Model) Model {
 	mt := reflect.TypeOf(model)
 	mv := reflect.ValueOf(model)
 	switch mt.Kind() {
