@@ -391,6 +391,23 @@ func TestList(t *testing.T) {
 	g.Expect(len(list)).To(gomega.Equal(2))
 	g.Expect(list[0].ID).To(gomega.Equal(4))
 	g.Expect(list[1].ID).To(gomega.Equal(8))
+	// Iter.
+	list = []TestObject{}
+	ctx := &ListContext{}
+	iter := make(chan TestObject, 3)
+	defer ctx.Cancel()
+	err = DB.Iter(ctx, iter, ListOptions{})
+	g.Expect(err).To(gomega.BeNil())
+	for m := range iter {
+		err := ctx.Err()
+		if err != nil {
+			break
+		}
+		list = append(list, m)
+	}
+	g.Expect(len(list)).To(gomega.Equal(10))
+	g.Expect(list[0].Name).To(gomega.Equal(""))
+	g.Expect(list[0].D4).To(gomega.Equal(""))
 	// Test count all.
 	count, err := DB.Count(&TestObject{}, nil)
 	g.Expect(err).To(gomega.BeNil())

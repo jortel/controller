@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"database/sql"
 	"encoding/binary"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 )
 
 const (
@@ -133,6 +135,8 @@ var (
 	MustBePtrErr = errors.New("must be pointer")
 	// Must be slice pointer.
 	MustBeSlicePtrErr = errors.New("must be slice pointer")
+	// Must be channel.
+	MustBeChannelErr = errors.New("must be channel")
 	// Parameter must be struct error.
 	MustBeObjectErr = errors.New("must be object")
 	// Field type error.
@@ -405,6 +409,65 @@ func (t Table) List(list interface{}, options ListOptions) error {
 	}
 
 	lv.Set(mList)
+
+	return nil
+}
+
+//
+// Model iterator.
+// Qualified by the list options
+func (t Table) Iter(ctx context.Context, iter interface{}, options ListOptions) error {
+	var model interface{}
+	lt := reflect.TypeOf(iter)
+	lv := reflect.ValueOf(iter)
+	switch lt.Kind() {
+	case reflect.Ptr:
+		lt = lt.Elem()
+		lv = lv.Elem()
+	}
+	switch lt.Kind() {
+	case reflect.Chan:
+		model = reflect.New(lt.Elem()).Interface()
+	default:
+		return liberr.Wrap(MustBeChannelErr)
+	}
+	fields, err := t.Fields(model)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	stmt, err := t.listSQL(t.Name(model), fields, &options)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	params := options.Params()
+	cursor, err := t.DB.Query(stmt, params...)
+	if err != nil {
+		return liberr.Wrap(err)
+	}
+	go func() {
+		defer lv.Close()
+		defer cursor.Close()
+		for cursor.Next() {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			mt := reflect.TypeOf(model)
+			mPtr := reflect.New(mt.Elem())
+			mInt := mPtr.Interface()
+			mFields, _ := t.Fields(mInt)
+			options.fields = mFields
+			err = t.scan(cursor, options.Fields())
+			if err != nil {
+				if lx, cast := ctx.(*ListContext); cast {
+					lx.err = liberr.Wrap(err)
+				}
+				return
+			}
+			lv.Send(mPtr.Elem())
+		}
+	}()
 
 	return nil
 }
@@ -1344,4 +1407,40 @@ func (l *ListOptions) Fields() (filtered []*Field) {
 // Get params referenced by the predicate.
 func (l *ListOptions) Params() []interface{} {
 	return l.params
+}
+
+//
+// List context.
+type ListContext struct {
+	done chan struct{}
+	err  error
+}
+
+func (r *ListContext) Done() <-chan struct{} {
+	if r.done == nil {
+		r.done = make(chan struct{})
+	}
+	return r.done
+}
+
+func (r *ListContext) Cancel() {
+	defer func() {
+		recover()
+	}()
+	if r.done == nil {
+		r.done = make(chan struct{})
+	}
+	close(r.done)
+}
+
+func (r *ListContext) Err() error {
+	return r.err
+}
+
+func (r *ListContext) Value(key interface{}) interface{} {
+	return nil
+}
+
+func (r *ListContext) Deadline() (deadline time.Time, ok bool) {
+	return time.Now(), false
 }

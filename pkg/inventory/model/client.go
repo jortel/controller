@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"database/sql"
 	liberr "github.com/konveyor/controller/pkg/error"
 	"os"
@@ -23,6 +24,8 @@ type DB interface {
 	Get(Model) error
 	// List models based on the type of slice.
 	List(interface{}, ListOptions) error
+	// Iterate models in the DB.
+	Iter(context.Context, interface{}, ListOptions) error
 	// Count based on the specified model.
 	Count(Model, Predicate) (int64, error)
 	// Begin a transaction.
@@ -123,6 +126,13 @@ func (r *Client) Get(model Model) error {
 // The `list` must be: *[]Model.
 func (r *Client) List(list interface{}, options ListOptions) error {
 	return Table{r.db}.List(list, options)
+}
+
+//
+// Model iterator.
+// The `iter` must be: chan Model.
+func (r *Client) Iter(ctx context.Context, iter interface{}, options ListOptions) error {
+	return Table{r.db}.Iter(ctx, iter, options)
 }
 
 //
