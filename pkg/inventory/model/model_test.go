@@ -69,6 +69,7 @@ type TestHandler struct {
 	updated []int
 	deleted []int
 	err     []error
+	primed  bool
 	done    bool
 }
 
@@ -94,6 +95,10 @@ func (w *TestHandler) Deleted(e Event) {
 
 func (w *TestHandler) Error(err error) {
 	w.err = append(w.err, err)
+}
+
+func (w *TestHandler) Primed() {
+	w.primed = true
 }
 
 func (w *TestHandler) End() {
@@ -129,6 +134,9 @@ func (w *MutatingHandler) Deleted(e Event) {
 
 func (w *MutatingHandler) Error(err error) {
 	return
+}
+
+func (w *MutatingHandler) Primed() {
 }
 
 func (w *MutatingHandler) End() {
@@ -545,6 +553,10 @@ func TestWatch(t *testing.T) {
 		}
 		return true
 	}()).To(gomega.BeTrue())
+	// Primed.
+	g.Expect(handlerA.primed).To(gomega.BeTrue())
+	g.Expect(handlerB.primed).To(gomega.BeTrue())
+	g.Expect(handlerC.primed).To(gomega.BeTrue())
 }
 
 func TestMutatingWatch(t *testing.T) {

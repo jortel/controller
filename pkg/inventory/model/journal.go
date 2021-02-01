@@ -37,6 +37,8 @@ type EventHandler interface {
 	Deleted(Event)
 	// An error has occurred delivering an event.
 	Error(error)
+	// Primed with collection.
+	Primed()
 	// An event watch has ended.
 	End()
 }
@@ -94,6 +96,7 @@ func (w *Watch) Start(list *reflect.Value) {
 				})
 		}
 		list = nil
+		w.Handler.Primed()
 		for event := range w.queue {
 			switch event.Action {
 			case Created:
