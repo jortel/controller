@@ -385,3 +385,33 @@ func TestConditions_HasConditionCategoryStaging(t *testing.T) {
 	// Test Staging and not staged.
 	g.Expect(conditions.HasConditionCategory(Critical)).To(gomega.BeFalse())
 }
+
+func TestConditions_ChangeSet(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	// Setup
+	conditions := Conditions{
+		List: []Condition{
+			{Type: "A"},
+			{Type: "B"},
+			{Type: "C"},
+			{Type: "D"},
+		},
+	}
+
+	conditions.BeginStagingConditions()
+	conditions.SetCondition(Condition{Type: "A"})
+	conditions.SetCondition(Condition{Type: "B"})
+	conditions.SetCondition(Condition{Type: "C"})
+	conditions.SetCondition(Condition{Type: "D"})
+	conditions.SetCondition(Condition{Type: "E"})
+	conditions.SetCondition(Condition{Type: "A", Reason: "X"})
+	conditions.DeleteCondition("B")
+	delta := conditions.EndStagingConditions()
+
+	g.Expect(len(delta.Added)).To(gomega.Equal(1))
+	g.Expect(delta.Added[0].Type).To(gomega.Equal("E"))
+	g.Expect(len(delta.Updated)).To(gomega.Equal(1))
+	g.Expect(delta.Updated[0].Type).To(gomega.Equal("A"))
+	g.Expect(len(delta.Deleted)).To(gomega.Equal(1))
+	g.Expect(delta.Deleted[0].Type).To(gomega.Equal("B"))
+}

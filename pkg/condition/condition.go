@@ -53,8 +53,12 @@ type Condition struct {
 	Durable bool `json:"durable,omitempty"`
 	// A list of items referenced in the `Message`.
 	Items []string `json:"items,omitempty"`
-	// A condition has been explicitly set/updated.
+	// The condition has been explicitly set/updated.
 	staged bool `json:"-"`
+	// The condition is newly added.
+	added bool `json:"-"`
+	// The condition has been updated.
+	updated bool `json:"-"`
 }
 
 //
@@ -72,6 +76,7 @@ func (r *Condition) Update(other Condition) {
 	r.Durable = other.Durable
 	r.Items = other.Items
 	r.LastTransitionTime = v1.NewTime(time.Now())
+	r.updated = true
 }
 
 //
@@ -124,8 +129,9 @@ func (r *Conditions) BeginStagingConditions() {
 
 //
 // End staging conditions. Un-staged conditions are deleted.
-func (r *Conditions) EndStagingConditions() {
+func (r *Conditions) EndStagingConditions() (d Delta){
 	r.staging = false
+	d = r.delta()
 	if r.List == nil {
 		return
 	}
@@ -137,6 +143,7 @@ func (r *Conditions) EndStagingConditions() {
 		}
 	}
 	r.List = kept
+	return
 }
 
 //
@@ -183,9 +190,11 @@ func (r *Conditions) SetCondition(conditions ...Condition) {
 		condition.staged = true
 		found := r.find(condition.Type)
 		if found == nil {
+			condition.added = true
 			condition.LastTransitionTime = v1.NewTime(time.Now())
 			r.List = append(r.List, condition)
 		} else {
+			condition.updated = true
 			found.Update(condition)
 		}
 	}
@@ -352,4 +361,49 @@ func (r *Conditions) IsReady() bool {
 	}
 
 	return true
+}
+
+//
+// Build delta.
+func (r *Conditions) delta() Delta {
+	d := Delta{}
+	for _, cnd := range r.List {
+		if cnd.added {
+			d.Added = append(d.Added, cnd)
+			continue
+		}
+		if cnd.updated {
+			d.Updated = append(d.Updated, cnd)
+			continue
+		}
+		if !cnd.staged {
+			d.Deleted = append(d.Deleted, cnd)
+			continue
+		}
+	}
+
+	return d
+}
+
+//
+// Delta report.
+type Delta struct {
+	// conditions added.
+	Added []Condition `json:"added"`
+	// conditions updated.
+	Updated []Condition `json:"updated"`
+	// conditions deleted.
+	Deleted []Condition `json:"deleted"`
+}
+
+//
+// Total number of chances.
+func (r *Delta) Len() int {
+	return len(r.Updated)+len(r.Updated)+len(r.Deleted)
+}
+
+//
+// The delta is empty.
+func (r *Delta) Empty() bool {
+	return r.Len() == 0
 }
