@@ -94,9 +94,6 @@ func (r *Condition) Equal(other Condition) bool {
 //
 // Managed collection of conditions.
 // Intended to be included in resource Status.
-// List - The list of conditions.
-// staging - In `staging` mode, the search methods like
-//          HasCondition() filter out un-staging conditions.
 // -------------------
 // Example:
 //
@@ -110,8 +107,10 @@ func (r *Condition) Equal(other Condition) bool {
 //     "Resource Ready.")
 //
 type Conditions struct {
-	List    []Condition `json:"conditions,omitempty"`
-	staging bool        `json:"-"`
+	// List of conditions.
+	List []Condition `json:"conditions,omitempty"`
+	// Staging conditions.
+	staging bool `json:"-"`
 }
 
 //
@@ -129,7 +128,7 @@ func (r *Conditions) BeginStagingConditions() {
 
 //
 // End staging conditions. Un-staged conditions are deleted.
-func (r *Conditions) EndStagingConditions() (d Delta){
+func (r *Conditions) EndStagingConditions() (d Delta) {
 	r.staging = false
 	d = r.delta()
 	if r.List == nil {
@@ -399,7 +398,7 @@ type Delta struct {
 //
 // Total number of chances.
 func (r *Delta) Len() int {
-	return len(r.Updated)+len(r.Updated)+len(r.Deleted)
+	return len(r.Updated) + len(r.Updated) + len(r.Deleted)
 }
 
 //
