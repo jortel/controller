@@ -1,7 +1,6 @@
 package itinerary
 
 import (
-	"github.com/konveyor/controller/pkg/itinerary/runtime"
 	"github.com/onsi/gomega"
 	"testing"
 )
@@ -32,59 +31,53 @@ func TestExport(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
 	itinerary := Itinerary{
-		Name: "Test",
-		Pipeline: Pipeline{
-			{
-				Name:        "ONE",
-				Description: "The one.",
-				Pipeline: Pipeline{
-					{Name: "A"},
-					{Name: "B", All: p1},
-					{Name: "C"},
-				},
+		{
+			Name:        "ONE",
+			Description: "The one.",
+			Children: []Step{
+				{Name: "A"},
+				{Name: "B", All: p1},
+				{Name: "C"},
 			},
-			{
-				Name: "TWO",
-				Pipeline: Pipeline{
-					{Name: "D"},
-					{Name: "E"},
-					{
-						Name: "F",
-						Pipeline: Pipeline{
-							{Name: "fa"},
-							{Name: "fb"},
-							{Name: "fc", All: p1},
-						},
-					},
-					{Name: "G"},
-				},
-			},
-			{Name: "THREE"},
 		},
+		{
+			Name: "TWO",
+			Children: []Step{
+				{Name: "D"},
+				{Name: "E"},
+				{
+					Name: "F",
+					Children: []Step{
+						{Name: "fa"},
+						{Name: "fb"},
+						{Name: "fc", All: p1},
+					},
+				},
+				{Name: "G"},
+			},
+		},
+		{Name: "THREE"},
 	}
 
 	pred := &TestPredicate{}
-	rtpl, err := itinerary.Export(pred)
+	pipeline, err := itinerary.Pipeline(pred)
 	g.Expect(err).To(gomega.BeNil())
-	g.Expect(len(rtpl)).To(gomega.Equal(len(itinerary.Pipeline)))
+	g.Expect(len(pipeline.Tasks)).To(gomega.Equal(len(itinerary)))
 
-	//
-	// Runtime.
-	rt := rtpl.Runtime()
 	// Add parallel pipeline to step C.
-	stepC, _ := rt.Get("ONE/C")
-	stepC.Pipeline = runtime.Pipeline{
+	stepC, _ := pipeline.Get("ONE/C")
+	stepC.Children = []Task{
 		{Name: "p1", Parallel: true},
 		{Name: "p2", Parallel: true},
 		{Name: "p3", Parallel: true},
 	}
 	// Run.
 	phase := "ONE"
-	current, err := rt.Get(phase)
+	current, err := pipeline.Get(phase)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(current).ToNot(gomega.BeNil())
 	for {
-		next, done, err := rt.Next(phase)
+		next, done, err := pipeline.Next(phase)
 		if done || err != nil {
 			break
 		}

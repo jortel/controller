@@ -1,135 +1,169 @@
 package itinerary
 
 import (
+	"errors"
 	liberr "github.com/konveyor/controller/pkg/error"
-	"github.com/konveyor/controller/pkg/itinerary/runtime"
+	core "k8s.io/api/core/v1"
+	"strings"
 )
 
 //
-// Predicate flag.
-type Flag = int16
+// Errors.
+var (
+	TaskNotFound = errors.New("task not found")
+)
 
 //
-// Predicate.
-// Flags delegated to the predicate.
-type Predicate interface {
-	// Evaluate the condition.
-	// Returns (true) when the step should be included.
-	Evaluate(Flag) (bool, error)
+// Pipeline task.
+type Task struct {
+	Timed
+	// Task name.
+	Name string `json:"name"`
+	// Description
+	Description string `json:"description,omitempty"`
+	// Annotations
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// Nested tasks.
+	Children []Task `json:"children,omitempty"`
+	// Progress.
+	Progress Progress `json:"progress"`
+	// Error.
+	Error *Error `json:"error"`
+	// Associated resources.
+	Resources []core.ObjectReference `json:"resources,omitempty"`
+	// Parallelized task.
+	Parallel bool `json:"parallel"`
+}
+
+//
+// Progress report.
+type Progress struct {
+	// Total units.
+	Total int64 `json:"total"`
+	// Number of completed units.
+	Completed int64 `json:"completed"`
+	// Message describing activity.
+	Message string `json:"message,omitempty"`
+}
+
+//
+// Error
+type Error struct {
+	// Phase the error occurred.
+	Phase string `json:"phase"`
+	// Error description.
+	Reasons []string `json:"reasons"`
+}
+
+//
+// Task reference.
+type TaskRef struct {
+	Path string
+	Task *Task
 }
 
 //
 // Pipeline.
-// List of steps.
-type Pipeline []Step
-
-//
-// Pipeline step.
-type Step struct {
-	// Step name.
-	Name string
-	// Description
-	Description string
-	// Annotations
-	Annotations map[string]string
-	// Nested pipeline.
-	Pipeline Pipeline
-	// Any of these conditions be satisfied for
-	// the step to be included.
-	All Flag
-	// All of these conditions be satisfied for
-	// the step to be included.
-	Any Flag
+type Pipeline struct {
+	Tasks []Task `json:"tasks"`
+	list  []TaskRef
+	index map[string]int
 }
 
 //
-// An itinerary.
-// List of conditional steps.
-type Itinerary struct {
-	// Name.
-	Name string
-	// Pipeline (list) of steps.
-	Pipeline
-}
-
-//
-//
-func (r Itinerary) Export(predicate Predicate) (out runtime.Pipeline, err error) {
-	var build func(Pipeline) runtime.Pipeline
-	build = func(in Pipeline) (out runtime.Pipeline) {
-		out = runtime.Pipeline{}
-		for _, step := range in {
-			pTrue, pErr := r.hasAny(predicate, step)
-			if pErr != nil {
-				err = liberr.Wrap(pErr)
-				return
-			}
-			if !pTrue {
-				continue
-			}
-			pTrue, pErr = r.hasAll(predicate, step)
-			if pErr != nil {
-				err = liberr.Wrap(pErr)
-				return
-			}
-			if !pTrue {
-				continue
-			}
-			out = append(
-				out,
-				runtime.Step{
-					Name:        step.Name,
-					Description: step.Description,
-					Annotations: step.Annotations,
-					Pipeline:    build(step.Pipeline),
-				})
-		}
+// Get task.
+func (r *Pipeline) Get(path string) (task *Task, err error) {
+	r.build()
+	ref, err := r.get(path)
+	if err != nil {
 		return
 	}
 
-	out = build(r.Pipeline)
+	task = ref.Task
 
 	return
 }
 
 //
-// The step has satisfied ANY of the predicates.
-func (r *Itinerary) hasAny(predicate Predicate, step Step) (pTrue bool, err error) {
-	for i := 0; i < 16; i++ {
-		flag := Flag(1 << i)
-		if (step.Any & flag) == 0 {
-			continue
+// Next task.
+func (r *Pipeline) Next(path string) (next TaskRef, done bool, err error) {
+	r.build()
+	done = true
+	if index, found := r.index[path]; found {
+		index++
+		if index < len(r.list) {
+			next = r.list[index]
+			done = false
 		}
-		if predicate == nil {
-			continue
-		}
-		pTrue, err = predicate.Evaluate(flag)
-		if pTrue || err != nil {
-			return
-		}
+	} else {
+		err = liberr.Wrap(TaskNotFound)
 	}
 
-	pTrue = true
 	return
 }
 
 //
-// The step has satisfied ALL of the predicates.
-func (r *Itinerary) hasAll(predicate Predicate, step Step) (pTrue bool, err error) {
-	for i := 0; i < 16; i++ {
-		flag := Flag(1 << i)
-		if (step.All & flag) == 0 {
-			continue
-		}
-		if predicate == nil {
-			continue
-		}
-		pTrue, err = predicate.Evaluate(flag)
-		if !pTrue || err != nil {
+// Get TaskRef.
+func (r *Pipeline) get(path string) (ref TaskRef, err error) {
+	r.build()
+	if index, found := r.index[path]; found {
+		if index < len(r.list) {
+			ref = r.list[index]
 			return
 		}
 	}
 
-	pTrue = true
+	err = liberr.Wrap(TaskNotFound)
+
+	return
+}
+
+//
+// Build self.
+func (r *Pipeline) build() {
+	if r.index != nil {
+		return
+	}
+	r.list = []TaskRef{}
+	r.index = map[string]int{}
+	n := 0
+	var build func(string, []Task)
+	build = func(parent string, pl []Task) {
+		for i := range pl {
+			task := &pl[i]
+			if task.Parallel {
+				continue
+			}
+			path := r.Join(parent, task.Name)
+			r.list = append(
+				r.list,
+				TaskRef{
+					Path: path,
+					Task: task,
+				})
+			r.index[path] = n
+			n++
+			build(path, task.Children)
+		}
+	}
+	build("", r.Tasks)
+}
+
+//
+// Join phase parts.
+func (r Pipeline) Join(parent, name string) (phase string) {
+	if parent != "" {
+		phase = strings.Join([]string{parent, name}, "/")
+	} else {
+		phase = name
+	}
+
+	return
+}
+
+//
+// Split path.
+func (r Pipeline) Split(path string) (part []string) {
+	part = strings.Split(path, "/")
 	return
 }
