@@ -24,15 +24,62 @@ type Task struct {
 	// Annotations
 	Annotations map[string]string `json:"annotations,omitempty"`
 	// Nested tasks.
-	Children []Task `json:"children,omitempty"`
+	Children []*Task `json:"children,omitempty"`
 	// Progress.
 	Progress Progress `json:"progress"`
-	// Error.
-	Error *Error `json:"error"`
+	// Errors.
+	Errors []Error `json:"error"`
 	// Associated resources.
 	Resources []core.ObjectReference `json:"resources,omitempty"`
 	// Parallelized task.
 	Parallel bool `json:"parallel"`
+	// Parent.
+	parent *Task
+}
+
+//
+// Aggregate errors and progress.
+func (r *Task) Aggregate() {
+	r.aggregate()
+}
+
+//
+// Aggregate errors and progress.
+func (r *Task) aggregate() ([]Error, Progress) {
+	r.Errors = []Error{}
+	r.Progress = Progress{}
+	for _, child := range r.Children {
+		e, p := child.aggregate()
+		r.Errors = append(r.Errors, e...)
+		r.Progress.Completed += p.Completed
+		r.Progress.Total += p.Total
+		r.Progress.Message = strings.Join([]string{
+			r.Progress.Message,
+			p.Message,
+		},
+			";")
+	}
+
+	return r.Errors, r.Progress
+}
+
+//
+// Task has failed.
+func (r *Task) Failed() bool {
+	r.Aggregate()
+	return len(r.Errors) > 0
+}
+
+//
+// Task has succeeded.
+func (r *Task) Succeeded() bool {
+	return !r.Failed() && r.MarkedCompleted()
+}
+
+//
+// Task is running.
+func (r *Task) Running() bool {
+	return r.MarkedStarted() && !r.MarkedCompleted()
 }
 
 //
@@ -49,10 +96,10 @@ type Progress struct {
 //
 // Error
 type Error struct {
-	// Phase the error occurred.
-	Phase string `json:"phase"`
-	// Error description.
-	Reasons []string `json:"reasons"`
+	// Path the error occurred.
+	Path string `json:"path"`
+	// Error.
+	Error error `json:"reasons"`
 }
 
 //
@@ -65,13 +112,22 @@ type TaskRef struct {
 //
 // Pipeline.
 type Pipeline struct {
-	Tasks []Task `json:"tasks"`
+	Index int     `json:"index"`
+	Tasks []*Task `json:"tasks"`
 	list  []TaskRef
 	index map[string]int
 }
 
 //
-// Get task.
+// Index of path.
+func (r *Pipeline) IndexOf(path string) (index int, found bool) {
+	r.build()
+	index, found = r.index[path]
+	return
+}
+
+//
+// Find task.
 func (r *Pipeline) Get(path string) (task *Task, err error) {
 	r.build()
 	ref, err := r.get(path)
@@ -86,17 +142,16 @@ func (r *Pipeline) Get(path string) (task *Task, err error) {
 
 //
 // Next task.
-func (r *Pipeline) Next(path string) (next TaskRef, done bool, err error) {
+func (r *Pipeline) Next() (next *Task, done bool, err error) {
 	r.build()
-	done = true
-	if index, found := r.index[path]; found {
-		index++
-		if index < len(r.list) {
-			next = r.list[index]
-			done = false
-		}
+	if r.Index > 0 {
+		r.list[r.Index-1].Task.MarkedCompleted()
+	}
+	if r.Index < len(r.list) {
+		next = r.list[r.Index].Task
+		r.Index++
 	} else {
-		err = liberr.Wrap(TaskNotFound)
+		done = true
 	}
 
 	return
@@ -127,10 +182,9 @@ func (r *Pipeline) build() {
 	r.list = []TaskRef{}
 	r.index = map[string]int{}
 	n := 0
-	var build func(string, []Task)
-	build = func(parent string, pl []Task) {
-		for i := range pl {
-			task := &pl[i]
+	var build func(string, []*Task)
+	build = func(parent string, children []*Task) {
+		for _, task := range children {
 			if task.Parallel {
 				continue
 			}
@@ -150,12 +204,12 @@ func (r *Pipeline) build() {
 }
 
 //
-// Join phase parts.
-func (r Pipeline) Join(parent, name string) (phase string) {
+// Join path parts.
+func (r Pipeline) Join(parent, name string) (path string) {
 	if parent != "" {
-		phase = strings.Join([]string{parent, name}, "/")
+		path = strings.Join([]string{parent, name}, "/")
 	} else {
-		phase = name
+		path = name
 	}
 
 	return

@@ -43,9 +43,9 @@ type Itinerary []Step
 //
 //
 func (r Itinerary) Pipeline(predicate Predicate) (out Pipeline, err error) {
-	var build func([]Step) []Task
-	build = func(in []Step) (out []Task) {
-		out = []Task{}
+	var build func(*Task, []Step) []*Task
+	build = func(parent *Task, in []Step) (out []*Task) {
+		out = []*Task{}
 		for _, step := range in {
 			pTrue, pErr := r.hasAny(predicate, step)
 			if pErr != nil {
@@ -63,19 +63,19 @@ func (r Itinerary) Pipeline(predicate Predicate) (out Pipeline, err error) {
 			if !pTrue {
 				continue
 			}
-			out = append(
-				out,
-				Task{
-					Name:        step.Name,
-					Description: step.Description,
-					Annotations: step.Annotations,
-					Children:    build(step.Children),
-				})
+			task := &Task{
+				Name:        step.Name,
+				Description: step.Description,
+				Annotations: step.Annotations,
+				parent:      parent,
+			}
+			task.Children = build(task, step.Children)
+			out = append(out, task)
 		}
 		return
 	}
 
-	out = Pipeline{Tasks: build(r)}
+	out = Pipeline{Tasks: build(nil, r)}
 
 	return
 }
