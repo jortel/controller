@@ -67,9 +67,9 @@ func TestExport(t *testing.T) {
 	// Add parallel pipeline to step C.
 	stepC, _ := pipeline.Get("ONE/C")
 	stepC.Children = []*Task{
-		{Name: "p1", Parallel: true},
-		{Name: "p2", Parallel: true},
-		{Name: "p3", Parallel: true},
+		{Name: "p1", Parallel: true, Progress: Progress{Total: 10}},
+		{Name: "p2", Parallel: true, Progress: Progress{Total: 5}},
+		{Name: "p3", Parallel: true, Progress: Progress{Total: 5}},
 	}
 	// Parent.
 	g.Expect(pipeline.Tasks[0].Parent()).To(gomega.Equal(""))
@@ -79,6 +79,7 @@ func TestExport(t *testing.T) {
 	current, found := pipeline.Get(phase)
 	g.Expect(found).To(gomega.BeTrue())
 	g.Expect(current).ToNot(gomega.BeNil())
+	pipeline.Aggregate()
 	for {
 		task := pipeline.Current()
 		next, done, err := pipeline.Next()

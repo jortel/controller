@@ -56,18 +56,22 @@ func (r *Task) Aggregate() {
 //
 // Aggregate errors and progress.
 func (r *Task) aggregate() ([]Error, Progress) {
-	r.Errors = []Error{}
-	r.Progress = Progress{}
+	if len(r.Children) > 0 {
+		r.Errors = []Error{}
+		r.Progress = Progress{}
+	}
 	for _, child := range r.Children {
 		e, p := child.aggregate()
 		r.Errors = append(r.Errors, e...)
 		r.Progress.Completed += p.Completed
 		r.Progress.Total += p.Total
-		r.Progress.Message = strings.Join([]string{
-			r.Progress.Message,
-			p.Message,
-		},
-			";")
+		if len(p.Message) > 0 {
+			r.Progress.Message = strings.Join([]string{
+				r.Progress.Message,
+				p.Message,
+			},
+				";")
+		}
 	}
 
 	return r.Errors, r.Progress
@@ -174,6 +178,14 @@ func (r *Pipeline) Next() (task *Task, done bool, err error) {
 	}
 
 	return
+}
+
+//
+// Aggregate tasks.
+func (r *Pipeline) Aggregate() {
+	for _, task := range r.Tasks {
+		task.Aggregate()
+	}
 }
 
 //
