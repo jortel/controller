@@ -177,7 +177,7 @@ func (r *Pipeline) Next() (task *Task, done bool, err error) {
 }
 
 //
-// Build self.
+// Build index and flattened task list.
 func (r *Pipeline) build() {
 	if r.index != nil {
 		return
