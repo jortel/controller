@@ -32,8 +32,8 @@ type Task struct {
 	Errors []Error `json:"error"`
 	// Associated resources.
 	Resources []core.ObjectReference `json:"resources,omitempty"`
-	// Parallelized task.
-	Parallel bool `json:"parallel"`
+	// Managed task.
+	Managed bool `json:"managed"`
 }
 
 //
@@ -200,7 +200,7 @@ func (r *Pipeline) build() {
 	build = func(children []*Task) {
 		for _, task := range children {
 			r.index[task.Path] = task
-			if task.Parallel {
+			if !task.Managed {
 				continue
 			}
 			r.list = append(r.list, task)

@@ -73,6 +73,7 @@ func (r Itinerary) Pipeline(predicate Predicate) (out Pipeline, err error) {
 				Path:        path,
 				Description: step.Description,
 				Annotations: step.Annotations,
+				Managed:     true,
 			}
 			task.Progress.Total = 1
 			task.Children = build(task, step.Children)
