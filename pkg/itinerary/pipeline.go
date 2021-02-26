@@ -2,7 +2,6 @@ package itinerary
 
 import (
 	"errors"
-	liberr "github.com/konveyor/controller/pkg/error"
 	core "k8s.io/api/core/v1"
 	"strings"
 )
@@ -19,6 +18,8 @@ type Task struct {
 	Timed
 	// Task name.
 	Name string `json:"name"`
+	// Path.
+	Path string `json:"path"`
 	// Description
 	Description string `json:"description,omitempty"`
 	// Annotations
@@ -33,8 +34,17 @@ type Task struct {
 	Resources []core.ObjectReference `json:"resources,omitempty"`
 	// Parallelized task.
 	Parallel bool `json:"parallel"`
-	// Parent.
-	parent *Task
+}
+
+//
+// Parent path.
+func (r *Task) Parent() (path string) {
+	parts := strings.Split(r.Path, "/")
+	if len(parts) > 1 {
+		path = parts[len(parts)-2]
+	}
+
+	return
 }
 
 //
@@ -103,72 +113,65 @@ type Error struct {
 }
 
 //
-// Task reference.
-type TaskRef struct {
-	Path string
-	Task *Task
-}
-
-//
 // Pipeline.
 type Pipeline struct {
-	Index int     `json:"index"`
+	// Index of next task to be returned by next().
+	Index int `json:"index"`
+	// Lost of `top` level tasks.
 	Tasks []*Task `json:"tasks"`
-	list  []TaskRef
-	index map[string]int
+	// Flattened list of tasks in execution order.
+	list []*Task
+	// Task index by path.
+	index map[string]*Task
 }
 
 //
 // Index of path.
 func (r *Pipeline) IndexOf(path string) (index int, found bool) {
 	r.build()
-	index, found = r.index[path]
+	for i := range r.list {
+		task := r.list[i]
+		if task.Path == path {
+			found = true
+			index = i
+		}
+	}
 	return
 }
 
 //
 // Find task.
-func (r *Pipeline) Get(path string) (task *Task, err error) {
+func (r *Pipeline) Get(path string) (task *Task, found bool) {
 	r.build()
-	ref, err := r.get(path)
-	if err != nil {
-		return
-	}
+	task, found = r.index[path]
+	return
+}
 
-	task = ref.Task
+//
+// Current task.
+func (r *Pipeline) Current() (task *Task) {
+	r.build()
+	if r.Index < len(r.list) {
+		task = r.list[r.Index]
+	} else {
+		task = r.list[len(r.list)-1]
+	}
 
 	return
 }
 
 //
 // Next task.
-func (r *Pipeline) Next() (next *Task, done bool, err error) {
+func (r *Pipeline) Next() (task *Task, done bool, err error) {
 	r.build()
-	if r.Index > 0 {
-		r.list[r.Index-1].Task.MarkedCompleted()
-	}
+	task = r.Current()
+	task.MarkedCompleted()
+	r.Index++
 	if r.Index < len(r.list) {
-		next = r.list[r.Index].Task
-		r.Index++
+		task = r.list[r.Index]
 	} else {
 		done = true
 	}
-
-	return
-}
-
-//
-// Get TaskRef.
-func (r *Pipeline) get(path string) (ref TaskRef, err error) {
-	r.build()
-	if index, found := r.index[path]; found {
-		if index < len(r.list) {
-			ref = r.list[index]
-			return
-		}
-	}
-
-	err = liberr.Wrap(TaskNotFound)
 
 	return
 }
@@ -179,45 +182,18 @@ func (r *Pipeline) build() {
 	if r.index != nil {
 		return
 	}
-	r.list = []TaskRef{}
-	r.index = map[string]int{}
-	n := 0
-	var build func(string, []*Task)
-	build = func(parent string, children []*Task) {
+	r.list = []*Task{}
+	r.index = map[string]*Task{}
+	var build func([]*Task)
+	build = func(children []*Task) {
 		for _, task := range children {
+			r.index[task.Path] = task
 			if task.Parallel {
 				continue
 			}
-			path := r.Join(parent, task.Name)
-			r.list = append(
-				r.list,
-				TaskRef{
-					Path: path,
-					Task: task,
-				})
-			r.index[path] = n
-			n++
-			build(path, task.Children)
+			r.list = append(r.list, task)
+			build(task.Children)
 		}
 	}
-	build("", r.Tasks)
-}
-
-//
-// Join path parts.
-func (r Pipeline) Join(parent, name string) (path string) {
-	if parent != "" {
-		path = strings.Join([]string{parent, name}, "/")
-	} else {
-		path = name
-	}
-
-	return
-}
-
-//
-// Split path.
-func (r Pipeline) Split(path string) (part []string) {
-	part = strings.Split(path, "/")
-	return
+	build(r.Tasks)
 }

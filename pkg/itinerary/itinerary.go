@@ -2,6 +2,7 @@ package itinerary
 
 import (
 	liberr "github.com/konveyor/controller/pkg/error"
+	pathlib "path"
 )
 
 //
@@ -63,11 +64,15 @@ func (r Itinerary) Pipeline(predicate Predicate) (out Pipeline, err error) {
 			if !pTrue {
 				continue
 			}
+			path := step.Name
+			if parent != nil {
+				path = pathlib.Join(parent.Path, step.Name)
+			}
 			task := &Task{
 				Name:        step.Name,
+				Path:        path,
 				Description: step.Description,
 				Annotations: step.Annotations,
-				parent:      parent,
 			}
 			task.Children = build(task, step.Children)
 			out = append(out, task)

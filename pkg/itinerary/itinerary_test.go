@@ -71,16 +71,21 @@ func TestExport(t *testing.T) {
 		{Name: "p2", Parallel: true},
 		{Name: "p3", Parallel: true},
 	}
+	// Parent.
+	g.Expect(pipeline.Tasks[0].Parent()).To(gomega.Equal(""))
+	g.Expect(stepC.Parent()).To(gomega.Equal("ONE"))
 	// Run.
 	phase := "ONE"
-	current, err := pipeline.Get(phase)
-	g.Expect(err).To(gomega.BeNil())
+	current, found := pipeline.Get(phase)
+	g.Expect(found).To(gomega.BeTrue())
 	g.Expect(current).ToNot(gomega.BeNil())
 	for {
+		task := pipeline.Current()
 		next, done, err := pipeline.Next()
 		if done || err != nil {
 			break
 		}
+		g.Expect(task).ToNot(gomega.BeNil())
 		g.Expect(next).ToNot(gomega.BeNil())
 	}
 }
