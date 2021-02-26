@@ -74,6 +74,7 @@ func (r Itinerary) Pipeline(predicate Predicate) (out Pipeline, err error) {
 				Description: step.Description,
 				Annotations: step.Annotations,
 			}
+			task.Progress.Total = 1
 			task.Children = build(task, step.Children)
 			out = append(out, task)
 		}
