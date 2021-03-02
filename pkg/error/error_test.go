@@ -35,13 +35,12 @@ func TestError(t *testing.T) {
 
 	le4 := Wrap(
 		le3,
-		"Failed to create user.",
-		Map{
-			"name": "larry",
-			"age": 10,
-		})
+		"description", "Failed to create user.",
+		"name", "larry",
+		"age", 10)
 	g.Expect(le4.(*Error).Context()).ToNot(gomega.BeNil())
-	g.Expect(len(le4.(*Error).Context())).To(gomega.Equal(2))
+	g.Expect(len(le4.(*Error).Context())).To(gomega.Equal(1))
+	g.Expect(len(le4.(*Error).Context()[0])).To(gomega.Equal(3))
 
 	println(le.Stack())
 }

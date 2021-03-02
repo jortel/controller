@@ -100,11 +100,9 @@ func TestLogger(t *testing.T) {
 	log.Trace(
 		liberr.Wrap(
 			errors.New("D wrapped"),
-			"Failed to create user.",
-			liberr.Map{
-				"name": "larry",
-				"age": 10,
-			}))
+			"description", "Failed to create user.",
+			"name", "larry",
+			"age", 10))
 	g.Expect(len(f.entry)).To(gomega.Equal(6))
 	g.Expect(len(f.entry[4].kvpair)).To(gomega.Equal(4))
 	g.Expect(f.entry[5].kvpair[0]).To(gomega.Equal(Error))

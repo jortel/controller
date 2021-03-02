@@ -21,7 +21,7 @@ func Wrap(err error, context ...interface{}) error {
 		return err
 	}
 	if le, cast := err.(*Error); cast {
-		le.context = append(le.context, context...)
+		le.addContext(context)
 		return le
 	}
 	bfr := make([]uintptr, 50)
@@ -40,11 +40,14 @@ func Wrap(err error, context ...interface{}) error {
 			break
 		}
 	}
-	return &Error{
+	newError := &Error{
 		stack:   stack,
-		context: context,
 		wrapped: err,
 	}
+
+	newError.addContext(context)
+
+	return newError
 }
 
 //
@@ -67,10 +70,6 @@ func Unwrap(err error) (out error) {
 }
 
 //
-// Key/Value Map.
-type Map map[string]interface{}
-
-//
 // Error.
 // Wraps a root cause error and captures
 // the stack.
@@ -78,7 +77,7 @@ type Error struct {
 	// Original error.
 	wrapped error
 	// Context.
-	context []interface{}
+	context [][]interface{}
 	// Stack.
 	stack []string
 }
@@ -103,12 +102,38 @@ func (e Error) Stack() string {
 
 //
 // Get `context` key/value pairs.
-func (e Error) Context() (list []interface{}) {
-	return e.context
+func (e Error) Context() (context []map[interface{}]interface{}) {
+	if e.context == nil {
+		return
+	}
+	context = []map[interface{}]interface{}{}
+	for _, l := range e.context {
+		mp := map[interface{}]interface{}{}
+		i := 0
+		for {
+			if (i + 1) < len(l) {
+				mp[l[i]] = l[i+1]
+				i += 2
+			} else {
+				break
+			}
+		}
+		context = append(context, mp)
+	}
+
+	return
 }
 
 //
 // Unwrap the error.
 func (e Error) Unwrap() error {
 	return Unwrap(e.wrapped)
+}
+
+//
+// Add context.
+func (e *Error) addContext(kvpair []interface{}) {
+	if len(kvpair) > 0 {
+		e.context = append(e.context, kvpair)
+	}
 }
