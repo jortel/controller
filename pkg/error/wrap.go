@@ -16,11 +16,12 @@ func New(m string) error {
 //
 // Wrap an error.
 // Returns `err` when err is `nil` or *Error.
-func Wrap(err error) error {
+func Wrap(err error, context ...interface{}) error {
 	if err == nil {
 		return err
 	}
 	if le, cast := err.(*Error); cast {
+		le.context = append(le.context, context...)
 		return le
 	}
 	bfr := make([]uintptr, 50)
@@ -41,6 +42,7 @@ func Wrap(err error) error {
 	}
 	return &Error{
 		stack:   stack,
+		context: context,
 		wrapped: err,
 	}
 }
@@ -65,12 +67,18 @@ func Unwrap(err error) (out error) {
 }
 
 //
+// Key/Value Map.
+type Map map[string]interface{}
+
+//
 // Error.
 // Wraps a root cause error and captures
 // the stack.
 type Error struct {
 	// Original error.
 	wrapped error
+	// Context.
+	context []interface{}
 	// Stack.
 	stack []string
 }
@@ -91,6 +99,12 @@ func (e Error) Error() string {
 //   ...
 func (e Error) Stack() string {
 	return strings.Join(e.stack, "\n")
+}
+
+//
+// Get `context` key/value pairs.
+func (e Error) Context() (list []interface{}) {
+	return e.context
 }
 
 //

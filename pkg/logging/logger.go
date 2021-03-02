@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	Context = "context"
 	Stack = "stacktrace"
 	Error = "error"
 	None  = ""
@@ -77,6 +78,12 @@ func (l Logger) Error(err error, message string, kvpair ...interface{}) {
 			le.Error(),
 			Stack,
 			le.Stack())
+		if context := le.Context(); context != nil {
+			kvpair = append(
+				kvpair,
+				Context,
+				context)
+		}
 		l.Real.Info(message, kvpair...)
 		return
 	}
