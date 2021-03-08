@@ -292,6 +292,19 @@ func TestList(t *testing.T) {
 	g.Expect(len(list)).To(gomega.Equal(10))
 	g.Expect(list[0].Name).To(gomega.Equal(""))
 	g.Expect(list[0].D4).To(gomega.Equal(""))
+
+	// List all; detail level=0
+	ch := make(chan TestObject)
+	err = DB.List(ch, ListOptions{})
+	list = []TestObject{}
+	for m := range ch {
+		list = append(list, m)
+	}
+	g.Expect(err).To(gomega.BeNil())
+	g.Expect(len(list)).To(gomega.Equal(10))
+	g.Expect(list[0].Name).To(gomega.Equal(""))
+	g.Expect(list[0].D4).To(gomega.Equal(""))
+
 	// List detail level=1 (all)
 	list = []TestObject{}
 	err = DB.List(&list, ListOptions{Detail: 1})

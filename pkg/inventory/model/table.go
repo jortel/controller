@@ -367,11 +367,14 @@ func (t Table) List(list interface{}, options ListOptions) error {
 	case reflect.Ptr:
 		lt = lt.Elem()
 		lv = lv.Elem()
+	case reflect.Chan:
+		//
 	default:
 		return liberr.Wrap(MustBeSlicePtrErr)
 	}
 	switch lt.Kind() {
-	case reflect.Slice:
+	case reflect.Slice,
+		reflect.Chan:
 		model = reflect.New(lt.Elem()).Interface()
 	default:
 		return liberr.Wrap(MustBeSlicePtrErr)
@@ -389,22 +392,48 @@ func (t Table) List(list interface{}, options ListOptions) error {
 	if err != nil {
 		return liberr.Wrap(err)
 	}
-	defer cursor.Close()
-	mList := reflect.MakeSlice(lt, 0, 0)
-	for cursor.Next() {
+	scan := func() (v reflect.Value, err error) {
 		mt := reflect.TypeOf(model)
 		mPtr := reflect.New(mt.Elem())
 		mInt := mPtr.Interface()
 		mFields, _ := t.Fields(mInt)
 		options.fields = mFields
 		err = t.scan(cursor, options.Fields())
-		if err != nil {
-			return liberr.Wrap(err)
+		if err == nil {
+			v = mPtr.Elem()
+		} else {
+			err = liberr.Wrap(err)
 		}
-		mList = reflect.Append(mList, mPtr.Elem())
+		return
 	}
-
-	lv.Set(mList)
+	switch lt.Kind() {
+	case reflect.Slice:
+		defer cursor.Close()
+		list := reflect.MakeSlice(lt, 0, 0)
+		for cursor.Next() {
+			val, err := scan()
+			if err != nil {
+				return err
+			}
+			list = reflect.Append(list, val)
+		}
+		lv.Set(list)
+	case reflect.Chan:
+		go func() {
+			defer cursor.Close()
+			defer lv.Close()
+			for cursor.Next() {
+				model, err := scan()
+				if err == nil {
+					lv.Send(model)
+				} else {
+					break
+				}
+			}
+		}()
+	default:
+		defer cursor.Close()
+	}
 
 	return nil
 }
