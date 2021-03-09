@@ -131,8 +131,6 @@ var (
 	MustHavePkErr = errors.New("must have PK field")
 	// Parameter must be pointer error.
 	MustBePtrErr = errors.New("must be pointer")
-	// Must be slice pointer.
-	MustBeSlicePtrErr = errors.New("must be slice pointer")
 	// Parameter must be struct error.
 	MustBeObjectErr = errors.New("must be object")
 	// Field type error.
@@ -359,54 +357,29 @@ func (t Table) Get(model interface{}) error {
 //
 // List the model in the DB.
 // Qualified by the list options.
-func (t Table) List(list interface{}, options ListOptions) error {
-	var model interface{}
-	lt := reflect.TypeOf(list)
-	lv := reflect.ValueOf(list)
-	switch lt.Kind() {
-	case reflect.Ptr:
-		lt = lt.Elem()
-		lv = lv.Elem()
-	default:
-		return liberr.Wrap(MustBeSlicePtrErr)
-	}
-	switch lt.Kind() {
-	case reflect.Slice:
-		model = reflect.New(lt.Elem()).Interface()
-	default:
-		return liberr.Wrap(MustBeSlicePtrErr)
-	}
+// Returns: Cursor.
+func (t Table) List(model interface{}, options ListOptions) (cursor Cursor, err error) {
 	fields, err := t.Fields(model)
 	if err != nil {
-		return err
+		return
 	}
 	stmt, err := t.listSQL(t.Name(model), fields, &options)
 	if err != nil {
-		return err
+		return
 	}
 	params := options.Params()
-	cursor, err := t.DB.Query(stmt, params...)
+	rowSet, err := t.DB.Query(stmt, params...)
 	if err != nil {
-		return liberr.Wrap(err)
+		err = liberr.Wrap(err)
+		return
 	}
-	defer cursor.Close()
-	mList := reflect.MakeSlice(lt, 0, 0)
-	for cursor.Next() {
-		mt := reflect.TypeOf(model)
-		mPtr := reflect.New(mt.Elem())
-		mInt := mPtr.Interface()
-		mFields, _ := t.Fields(mInt)
-		options.fields = mFields
-		err = t.scan(cursor, options.Fields())
-		if err != nil {
-			return liberr.Wrap(err)
-		}
-		mList = reflect.Append(mList, mPtr.Elem())
+	cursor = Cursor{
+		rowSet:  rowSet,
+		options: options,
+		table:   t,
 	}
 
-	lv.Set(mList)
-
-	return nil
+	return
 }
 
 //
@@ -1341,4 +1314,46 @@ func (l *ListOptions) Fields() (filtered []*Field) {
 // Get params referenced by the predicate.
 func (l *ListOptions) Params() []interface{} {
 	return l.params
+}
+
+//
+// List result cursor.
+type Cursor struct {
+	rowSet  *sql.Rows
+	options ListOptions
+	table   Table
+	closed  bool
+}
+
+//
+//
+func (r *Cursor) Next(model interface{}) (done bool, err error) {
+	if r.closed {
+		err = liberr.New("closed.")
+		return
+	}
+	for !r.rowSet.Next() {
+		done = true
+		return
+	}
+	err = r.rowSet.Err()
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	mFields, _ := r.table.Fields(model)
+	r.options.fields = mFields
+	err = r.table.scan(r.rowSet, r.options.Fields())
+	if err != nil {
+		err = liberr.Wrap(err)
+	}
+
+	return
+}
+
+//
+// Close.
+func (r *Cursor) Close() {
+	_ = r.rowSet.Close()
+	r.closed = true
 }

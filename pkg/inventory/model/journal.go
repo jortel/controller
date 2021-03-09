@@ -3,7 +3,6 @@ package model
 import (
 	liberr "github.com/konveyor/controller/pkg/error"
 	"github.com/konveyor/controller/pkg/ref"
-	"reflect"
 	"sync"
 )
 
@@ -82,21 +81,25 @@ func (w *Watch) notify(event *Event) {
 //
 // Run the watch.
 // Forward events to the `handler`.
-func (w *Watch) Start(list *reflect.Value) {
+func (w *Watch) Start(cursor Cursor) {
 	if w.started {
 		return
 	}
 	w.Handler.Started()
 	run := func() {
-		for i := 0; i < list.Len(); i++ {
-			m := list.Index(i).Addr().Interface()
+		defer cursor.Close()
+		for {
+			model := Clone(w.Model)
+			done, err := cursor.Next(model)
+			if done || err != nil {
+				break
+			}
 			w.Handler.Created(
 				Event{
-					Model:  m.(Model),
+					Model:  model.(Model),
 					Action: Created,
 				})
 		}
-		list = nil
 		for event := range w.queue {
 			switch event.Action {
 			case Created:

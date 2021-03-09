@@ -285,57 +285,70 @@ func TestList(t *testing.T) {
 		err = DB.Insert(object)
 		g.Expect(err).To(gomega.BeNil())
 	}
+	newList := func(cursor Cursor) (list []TestObject) {
+		defer cursor.Close()
+		list = []TestObject{}
+		for {
+			object := TestObject{}
+			done, err := cursor.Next(&object)
+			g.Expect(err).To(gomega.BeNil())
+			if !done || err != nil {
+				break
+			}
+			list = append(list, object)
+		}
+		return
+	}
 	// List all; detail level=0
-	list := []TestObject{}
-	err = DB.List(&list, ListOptions{})
+	cursor, err := DB.List(&TestObject{}, ListOptions{})
+	list := newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(10))
 	g.Expect(list[0].Name).To(gomega.Equal(""))
 	g.Expect(list[0].D4).To(gomega.Equal(""))
 	// List detail level=1 (all)
-	list = []TestObject{}
-	err = DB.List(&list, ListOptions{Detail: 1})
+	cursor, err = DB.List(&TestObject{}, ListOptions{Detail: 1})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(10))
 	g.Expect(list[0].Name).To(gomega.Equal("Elmer"))
 	g.Expect(list[0].D4).To(gomega.Equal("d-4"))
 	// List detail level=2
-	list = []TestObject{}
-	err = DB.List(&list, ListOptions{Detail: 2})
+	cursor, err = DB.List(&TestObject{}, ListOptions{Detail: 2})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(10))
 	g.Expect(list[0].Name).To(gomega.Equal("Elmer"))
 	g.Expect(list[0].Slice).To(gomega.BeNil())
 	// List detail level=3
-	list = []TestObject{}
-	err = DB.List(&list, ListOptions{Detail: 3})
+	cursor, err = DB.List(&TestObject{}, ListOptions{Detail: 3})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(10))
 	g.Expect(list[0].Name).To(gomega.Equal("Elmer"))
 	g.Expect(len(list[0].Slice)).To(gomega.Equal(2))
 	g.Expect(list[0].D4).To(gomega.Equal(""))
 	// List detail level=4
-	list = []TestObject{}
-	err = DB.List(&list, ListOptions{Detail: 4})
+	cursor, err = DB.List(&TestObject{}, ListOptions{Detail: 4})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(10))
 	g.Expect(list[0].Name).To(gomega.Equal("Elmer"))
 	g.Expect(len(list[0].Slice)).To(gomega.Equal(2))
 	g.Expect(list[0].D4).To(gomega.Equal("d-4"))
 	// List = (single).
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Eq("ID", 0),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(1))
 	g.Expect(list[0].ID).To(gomega.Equal(0))
 	// List != AND
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Detail: 2,
 			Predicate: And( // Even only.
@@ -345,6 +358,7 @@ func TestList(t *testing.T) {
 				Neq("ID", 7),
 				Neq("ID", 9)),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(5))
 	g.Expect(list[0].ID).To(gomega.Equal(0))
@@ -353,97 +367,97 @@ func TestList(t *testing.T) {
 	g.Expect(list[3].ID).To(gomega.Equal(6))
 	g.Expect(list[4].ID).To(gomega.Equal(8))
 	// List OR =.
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Or(
 				Eq("ID", 0),
 				Eq("ID", 6)),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(2))
 	g.Expect(list[0].ID).To(gomega.Equal(0))
 	g.Expect(list[1].ID).To(gomega.Equal(6))
 	// List < (lt).
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Lt("ID", 2),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(2))
 	g.Expect(list[0].ID).To(gomega.Equal(0))
 	g.Expect(list[1].ID).To(gomega.Equal(1))
 	// List > (gt).
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Gt("ID", 7),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(2))
 	g.Expect(list[0].ID).To(gomega.Equal(8))
 	g.Expect(list[1].ID).To(gomega.Equal(9))
 	// List > (gt) virtual.
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Gt("RowID", N/2),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(N / 2))
 	g.Expect(list[0].RowID).To(gomega.Equal(int64(N/2) + 1))
 	// List (Eq) Field values.
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Eq("RowID", Field{Name: "int8"}),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(1))
 	g.Expect(list[0].RowID).To(gomega.Equal(int64(8)))
 	// List (nEq) Field values.
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Neq("RowID", Field{Name: "int8"}),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(N - 1))
 	// List (Lt) Field values.
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Lt("int8", Field{Name: "int16"}),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(N))
 	// List (Gt) Field values.
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Predicate: Gt("RowID", Field{Name: "int8"}),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(2))
 	// By label.
-	list = []TestObject{}
-	err = DB.List(
-		&list,
+	cursor, err = DB.List(
+		&TestObject{},
 		ListOptions{
 			Sort: []int{2},
 			Predicate: Or(
 				Match(Labels{"id": "v4"}),
 				Eq("ID", 8)),
 		})
+	list = newList(cursor)
 	g.Expect(err).To(gomega.BeNil())
 	g.Expect(len(list)).To(gomega.Equal(2))
 	g.Expect(list[0].ID).To(gomega.Equal(4))

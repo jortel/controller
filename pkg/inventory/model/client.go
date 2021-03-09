@@ -22,7 +22,7 @@ type DB interface {
 	// Get the specified model.
 	Get(Model) error
 	// List models based on the type of slice.
-	List(interface{}, ListOptions) error
+	List(interface{}, ListOptions) (Cursor, error)
 	// Count based on the specified model.
 	Count(Model, Predicate) (int64, error)
 	// Begin a transaction.
@@ -118,7 +118,7 @@ func (r *Client) Get(model Model) error {
 //
 // List models.
 // The `list` must be: *[]Model.
-func (r *Client) List(list interface{}, options ListOptions) error {
+func (r *Client) List(list interface{}, options ListOptions) (Cursor, error) {
 	return Table{r.db}.List(list, options)
 }
 
@@ -228,13 +228,12 @@ func (r *Client) Watch(model Model, handler EventHandler) (*Watch, error) {
 	if err != nil {
 		return nil, err
 	}
-	listPtr := reflect.New(reflect.SliceOf(mt))
-	err = Table{r.db}.List(listPtr.Interface(), ListOptions{})
+	cursor, err := Table{r.db}.List(model, ListOptions{})
 	if err != nil {
 		return nil, err
 	}
-	list := listPtr.Elem()
-	watch.Start(&list)
+
+	watch.Start(cursor)
 
 	return watch, nil
 }
@@ -268,7 +267,7 @@ func (r *Tx) Get(model Model) error {
 //
 // List models.
 // The `list` must be: *[]Model.
-func (r *Tx) List(list interface{}, options ListOptions) error {
+func (r *Tx) List(list interface{}, options ListOptions) (Cursor, error) {
 	return Table{r.real}.List(list, options)
 }
 
@@ -406,10 +405,9 @@ func (r *Labeler) Insert(table Table, model Model) error {
 
 //
 // Delete labels for a model in the DB.
-func (r *Labeler) Delete(table Table, model Model) error {
-	list := []Label{}
-	err := table.List(
-		&list,
+func (r *Labeler) Delete(table Table, model Model) (err error) {
+	cursor, err := table.List(
+		&Label{},
 		ListOptions{
 			Predicate: And(
 				Eq("Kind", table.Name(model)),
@@ -418,14 +416,21 @@ func (r *Labeler) Delete(table Table, model Model) error {
 	if err != nil {
 		return err
 	}
-	for _, label := range list {
-		err := table.Delete(&label)
+	defer cursor.Close()
+	var done bool
+	for {
+		label := &Label{}
+		done, err = cursor.Next(label)
+		if done || err != nil {
+			break
+		}
+		err := table.Delete(label)
 		if err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return
 }
 
 //
