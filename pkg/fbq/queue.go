@@ -4,15 +4,31 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"github.com/google/uuid"
 	liberr "github.com/konveyor/controller/pkg/error"
 	"io"
 	"os"
+	pathlib "path"
 	"reflect"
 )
 
 //
+// Default working directory.
+var WorkingDir = "/tmp"
+
+//
 // New file-based queue.
-func NewFileQueue(path string) (q *FileQueue, err error) {
+func New() (q *Queue, err error) {
+	uid, _ := uuid.NewUUID()
+	name := uid.String() + ".fbq"
+	path := pathlib.Join(WorkingDir, name)
+	q, err = NewAt(path)
+	return
+}
+
+//
+// New file-based queue at path.
+func NewAt(path string) (q *Queue, err error) {
 	writer, err := os.Create(path)
 	if err != nil {
 		err = liberr.Wrap(err)
@@ -23,7 +39,7 @@ func NewFileQueue(path string) (q *FileQueue, err error) {
 		err = liberr.Wrap(err)
 		return
 	}
-	q = &FileQueue{
+	q = &Queue{
 		path:   path,
 		writer: writer,
 		reader: reader,
@@ -34,7 +50,7 @@ func NewFileQueue(path string) (q *FileQueue, err error) {
 
 //
 // File-based queue.
-type FileQueue struct {
+type Queue struct {
 	path    string
 	catalog []interface{}
 	writer  *os.File
@@ -43,7 +59,7 @@ type FileQueue struct {
 
 //
 // Enqueue object.
-func (q *FileQueue) Put(object interface{}) (err error) {
+func (q *Queue) Put(object interface{}) (err error) {
 	file := q.writer
 	// Encode object and add to catalog.
 	var bfr bytes.Buffer
@@ -86,7 +102,7 @@ func (q *FileQueue) Put(object interface{}) (err error) {
 
 //
 // Dequeue object.
-func (q *FileQueue) Next() (object interface{}, end bool, err error) {
+func (q *Queue) Next() (object interface{}, end bool, err error) {
 	file := q.reader
 	// Read object kind.
 	b := make([]byte, 2)
@@ -145,7 +161,7 @@ func (q *FileQueue) Next() (object interface{}, end bool, err error) {
 
 //
 // Close the queue.
-func (q *FileQueue) Close() {
+func (q *Queue) Close() {
 	_ = q.writer.Close()
 	_ = q.reader.Close()
 	_ = os.Remove(q.path)
@@ -153,7 +169,7 @@ func (q *FileQueue) Close() {
 
 //
 // Add object (proto) to the catelog.
-func (q *FileQueue) add(object interface{}) (kind uint16) {
+func (q *Queue) add(object interface{}) (kind uint16) {
 	t := reflect.TypeOf(object)
 	for i, f := range q.catalog {
 		if t == reflect.TypeOf(f) {
@@ -169,7 +185,7 @@ func (q *FileQueue) add(object interface{}) (kind uint16) {
 
 //
 // Find object (kind) in the catalog.
-func (q *FileQueue) find(kind uint16) (object interface{}, found bool) {
+func (q *Queue) find(kind uint16) (object interface{}, found bool) {
 	i := int(kind)
 	if i < len(q.catalog) {
 		object = q.catalog[i]

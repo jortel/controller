@@ -27,7 +27,7 @@ func TestQueue(t *testing.T) {
 		},
 	}
 
-	q, err := NewFileQueue("/tmp/queue/q2")
+	q, err := New()
 	g.Expect(err).To(gomega.BeNil())
 	defer q.Close()
 
