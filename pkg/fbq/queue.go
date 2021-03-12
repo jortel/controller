@@ -18,49 +18,85 @@ var WorkingDir = "/tmp"
 
 //
 // New file-based queue.
-func New() (q *Queue, err error) {
+func New() *Queue {
 	uid, _ := uuid.NewUUID()
 	name := uid.String() + ".fbq"
 	path := pathlib.Join(WorkingDir, name)
-	q, err = NewAt(path)
-	return
+	return NewAt(path)
 }
 
 //
 // New file-based queue at path.
-func NewAt(path string) (q *Queue, err error) {
-	writer, err := os.Create(path)
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
+func NewAt(path string) *Queue {
+	return &Queue{
+		path: path,
+		writer: Writer{
+			path: path,
+		},
+		reader: Reader{
+			path: path,
+		},
 	}
-	reader, err := os.Open(path)
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	q = &Queue{
-		path:   path,
-		writer: writer,
-		reader: reader,
-	}
-
-	return
 }
 
 //
 // File-based queue.
 type Queue struct {
-	path    string
-	catalog []interface{}
-	writer  *os.File
-	reader  *os.File
+	// File path.
+	path string
+	// Queue writer.
+	writer Writer
+	// Queue Reader.
+	reader Reader
 }
 
 //
 // Enqueue object.
 func (q *Queue) Put(object interface{}) (err error) {
-	file := q.writer
+	err = q.writer.Put(object)
+	return
+}
+
+//
+// Dequeue object.
+func (q *Queue) Get() (object interface{}, end bool, err error) {
+	q.reader.catalog = q.writer.catalog
+	object, end, err = q.reader.Get()
+	return
+}
+
+//
+// Close the queue.
+func (q *Queue) Close(delete bool) {
+	q.writer.Close()
+	q.reader.Close()
+	if delete {
+		_ = os.Remove(q.path)
+	}
+}
+
+//
+// Writer.
+type Writer struct {
+	// File path.
+	path string
+	// Catalog of object types.
+	catalog []interface{}
+	// File.
+	file *os.File
+}
+
+//
+// Enqueue object.
+func (w *Writer) Put(object interface{}) (err error) {
+	// Lazy open.
+	if w.file == nil {
+		err = w.open()
+		if err != nil {
+			return
+		}
+	}
+	file := w.file
 	// Encode object and add to catalog.
 	var bfr bytes.Buffer
 	encoder := gob.NewEncoder(&bfr)
@@ -69,7 +105,7 @@ func (q *Queue) Put(object interface{}) (err error) {
 		err = liberr.Wrap(err)
 		return
 	}
-	kind := q.add(object)
+	kind := w.add(object)
 	// Write object kind.
 	b := make([]byte, 2)
 	binary.LittleEndian.PutUint16(b, kind)
@@ -97,13 +133,73 @@ func (q *Queue) Put(object interface{}) (err error) {
 		err = liberr.New("Write failed.")
 	}
 
+	_ = file.Sync()
+
 	return
 }
 
 //
+// Close the writer.
+func (w *Writer) Close() {
+	if w.file != nil {
+		_ = w.file.Close()
+		w.file = nil
+	}
+}
+
+//
+// Open the writer.
+func (w *Writer) open() (err error) {
+	if w.file != nil {
+		return
+	}
+	w.file, err = os.Create(w.path)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+
+	return
+}
+
+//
+// Add object (proto) to the catalog.
+func (w *Writer) add(object interface{}) (kind uint16) {
+	t := reflect.TypeOf(object)
+	for i, f := range w.catalog {
+		if t == reflect.TypeOf(f) {
+			kind = uint16(i)
+			return
+		}
+	}
+
+	kind = uint16(len(w.catalog))
+	w.catalog = append(w.catalog, object)
+	return
+}
+
+//
+// Reader.
+type Reader struct {
+	// File path.
+	path string
+	// Catalog of object types.
+	catalog []interface{}
+	// File.
+	file *os.File
+}
+
+//
 // Dequeue object.
-func (q *Queue) Next() (object interface{}, end bool, err error) {
-	file := q.reader
+func (r *Reader) Get() (object interface{}, end bool, err error) {
+	// Lazy open.
+	if r.file == nil {
+		err = r.open()
+		if err != nil {
+			return
+		}
+	}
+	file := r.file
 	// Read object kind.
 	b := make([]byte, 2)
 	_, err = file.Read(b)
@@ -145,7 +241,7 @@ func (q *Queue) Next() (object interface{}, end bool, err error) {
 	// Decode object.
 	bfr := bytes.NewBuffer(b)
 	decoder := gob.NewDecoder(bfr)
-	object, found := q.find(kind)
+	object, found := r.find(kind)
 	if !found {
 		err = liberr.New("unknown kind.")
 		return
@@ -160,35 +256,35 @@ func (q *Queue) Next() (object interface{}, end bool, err error) {
 }
 
 //
-// Close the queue.
-func (q *Queue) Close() {
-	_ = q.writer.Close()
-	_ = q.reader.Close()
-	_ = os.Remove(q.path)
+// Close the reader.
+func (r *Reader) Close() {
+	if r.file != nil {
+		_ = r.file.Close()
+		r.file = nil
+	}
 }
 
 //
-// Add object (proto) to the catelog.
-func (q *Queue) add(object interface{}) (kind uint16) {
-	t := reflect.TypeOf(object)
-	for i, f := range q.catalog {
-		if t == reflect.TypeOf(f) {
-			kind = uint16(i)
-			return
-		}
+// Open the reader.
+func (r *Reader) open() (err error) {
+	if r.file != nil {
+		return
+	}
+	r.file, err = os.Open(r.path)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
 	}
 
-	kind = uint16(len(q.catalog))
-	q.catalog = append(q.catalog, object)
 	return
 }
 
 //
 // Find object (kind) in the catalog.
-func (q *Queue) find(kind uint16) (object interface{}, found bool) {
+func (r *Reader) find(kind uint16) (object interface{}, found bool) {
 	i := int(kind)
-	if i < len(q.catalog) {
-		object = q.catalog[i]
+	if i < len(r.catalog) {
+		object = r.catalog[i]
 		object = reflect.New(reflect.TypeOf(object)).Interface()
 		found = true
 	}
