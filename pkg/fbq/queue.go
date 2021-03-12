@@ -26,7 +26,7 @@ func New() *Queue {
 }
 
 //
-// New file-based queue at path.
+// New file-based queue at the specified path.
 func NewAt(path string) *Queue {
 	return &Queue{
 		path: path,
@@ -66,13 +66,29 @@ func (q *Queue) Get() (object interface{}, end bool, err error) {
 }
 
 //
+// Get a new reader.
+func (q *Queue) NewReader() (r *Reader, err error) {
+	uid, _ := uuid.NewUUID()
+	name := uid.String() + ".fbq"
+	path := pathlib.Join(WorkingDir, name)
+	err = os.Link(q.path, path)
+	if err == nil {
+		r = &Reader{
+			catalog: q.writer.catalog,
+			path:    path,
+		}
+	} else {
+		err = liberr.Wrap(err)
+	}
+
+	return
+}
+
+//
 // Close the queue.
 func (q *Queue) Close(delete bool) {
-	q.writer.Close()
+	q.writer.Close(delete)
 	q.reader.Close()
-	if delete {
-		_ = os.Remove(q.path)
-	}
 }
 
 //
@@ -140,10 +156,13 @@ func (w *Writer) Put(object interface{}) (err error) {
 
 //
 // Close the writer.
-func (w *Writer) Close() {
+func (w *Writer) Close(delete bool) {
 	if w.file != nil {
 		_ = w.file.Close()
 		w.file = nil
+		if delete {
+			_ = os.Remove(w.path)
+		}
 	}
 }
 
@@ -260,6 +279,7 @@ func (r *Reader) Get() (object interface{}, end bool, err error) {
 func (r *Reader) Close() {
 	if r.file != nil {
 		_ = r.file.Close()
+		_ = os.Remove(r.path)
 		r.file = nil
 	}
 }
