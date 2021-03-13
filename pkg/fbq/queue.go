@@ -12,6 +12,10 @@ import (
 	"reflect"
 )
 
+const (
+	Extension = ".fbq"
+)
+
 //
 // Default working directory.
 var WorkingDir = "/tmp"
@@ -20,7 +24,7 @@ var WorkingDir = "/tmp"
 // New file-based queue.
 func New() *Queue {
 	uid, _ := uuid.NewUUID()
-	name := uid.String() + ".fbq"
+	name := uid.String() + Extension
 	path := pathlib.Join(WorkingDir, name)
 	return NewAt(path)
 }
@@ -75,7 +79,7 @@ func (q *Queue) Next() (object interface{}, end bool, err error) {
 // Get an iterator.
 func (q *Queue) Iterator() (itr Iterator) {
 	uid, _ := uuid.NewUUID()
-	name := uid.String() + ".fbq"
+	name := uid.String() + Extension
 	path := pathlib.Join(WorkingDir, name)
 	err := os.Link(q.path, path)
 	itr = &Reader{
