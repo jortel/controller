@@ -58,10 +58,10 @@ func (q *Queue) Put(object interface{}) (err error) {
 }
 
 //
-// Dequeue object.
-func (q *Queue) Get() (object interface{}, end bool, err error) {
+// Dequeue the next object.
+func (q *Queue) Next() (object interface{}, end bool, err error) {
 	q.reader.catalog = q.writer.catalog
-	object, end, err = q.reader.Get()
+	object, end, err = q.reader.Next()
 	return
 }
 
@@ -209,8 +209,8 @@ type Reader struct {
 }
 
 //
-// Dequeue object.
-func (r *Reader) Get() (object interface{}, end bool, err error) {
+// Dequeue the next object.
+func (r *Reader) Next() (object interface{}, done bool, err error) {
 	// Lazy open.
 	if r.file == nil {
 		err = r.open()
@@ -224,7 +224,7 @@ func (r *Reader) Get() (object interface{}, end bool, err error) {
 	_, err = file.Read(b)
 	if err != nil {
 		if err == io.EOF {
-			end = true
+			done = true
 			err = nil
 		} else {
 			err = liberr.Wrap(err)
@@ -237,7 +237,7 @@ func (r *Reader) Get() (object interface{}, end bool, err error) {
 	_, err = file.Read(b)
 	if err != nil {
 		if err == io.EOF {
-			end = true
+			done = true
 			err = nil
 		} else {
 			err = liberr.Wrap(err)
@@ -250,7 +250,7 @@ func (r *Reader) Get() (object interface{}, end bool, err error) {
 	_, err = file.Read(b)
 	if err != nil {
 		if err == io.EOF {
-			end = true
+			done = true
 			err = nil
 		} else {
 			err = liberr.Wrap(err)
@@ -262,7 +262,7 @@ func (r *Reader) Get() (object interface{}, end bool, err error) {
 	decoder := gob.NewDecoder(bfr)
 	object, found := r.find(kind)
 	if !found {
-		err = liberr.New("unknown kind.")
+		err = liberr.New("unknown kind")
 		return
 	}
 	err = decoder.Decode(object)
