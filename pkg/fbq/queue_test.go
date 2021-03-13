@@ -17,7 +17,7 @@ func TestQueue(t *testing.T) {
 		UID string
 	}
 	input := []interface{}{}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 10; i++ {
 		input = append(
 			input,
 			Person{

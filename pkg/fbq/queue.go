@@ -79,8 +79,8 @@ func (q *Queue) Iterator() (itr Iterator) {
 	path := pathlib.Join(WorkingDir, name)
 	err := os.Link(q.path, path)
 	itr = &Reader{
-		linkError: err,
 		catalog: &q.writer.catalog,
+		error:   err,
 		path:    path,
 	}
 
@@ -205,8 +205,8 @@ func (w *Writer) add(object interface{}) (kind uint16) {
 //
 // Reader.
 type Reader struct {
-	// Error creating linking the file.
-	linkError error
+	// Error
+	error error
 	// File path.
 	path string
 	// Catalog of object types.
@@ -218,53 +218,55 @@ type Reader struct {
 //
 // Dequeue the next object.
 func (r *Reader) Next() (object interface{}, done bool, err error) {
-	if r.linkError != nil {
-		err = r.linkError
+	defer func() {
+		err = r.error
+	}()
+	if r.error != nil {
 		return
 	}
 	// Lazy open.
 	if r.file == nil {
-		err = r.open()
-		if err != nil {
+		r.error = r.open()
+		if r.error != nil {
 			return
 		}
 	}
 	file := r.file
 	// Read object kind.
 	b := make([]byte, 2)
-	_, err = file.Read(b)
-	if err != nil {
-		if err == io.EOF {
+	_, r.error = file.Read(b)
+	if r.error != nil {
+		if r.error == io.EOF {
+			r.error = nil
 			done = true
-			err = nil
 		} else {
-			err = liberr.Wrap(err)
+			r.error = liberr.Wrap(r.error)
 		}
 		return
 	}
 	// Read object encoded length.
 	kind := binary.LittleEndian.Uint16(b)
 	b = make([]byte, 8)
-	_, err = file.Read(b)
-	if err != nil {
-		if err == io.EOF {
+	_, r.error = file.Read(b)
+	if r.error != nil {
+		if r.error == io.EOF {
+			r.error = nil
 			done = true
-			err = nil
 		} else {
-			err = liberr.Wrap(err)
+			r.error = liberr.Wrap(r.error)
 		}
 		return
 	}
 	// Read encoded object.
 	n := int64(binary.LittleEndian.Uint64(b))
 	b = make([]byte, n)
-	_, err = file.Read(b)
-	if err != nil {
-		if err == io.EOF {
+	_, r.error = file.Read(b)
+	if r.error != nil {
+		if r.error == io.EOF {
+			r.error = nil
 			done = true
-			err = nil
 		} else {
-			err = liberr.Wrap(err)
+			r.error = liberr.Wrap(r.error)
 		}
 		return
 	}
@@ -273,12 +275,12 @@ func (r *Reader) Next() (object interface{}, done bool, err error) {
 	decoder := gob.NewDecoder(bfr)
 	object, found := r.find(kind)
 	if !found {
-		err = liberr.New("unknown kind")
+		r.error = liberr.New("unknown kind")
 		return
 	}
-	err = decoder.Decode(object)
-	if err != nil {
-		err = liberr.Wrap(err)
+	r.error = decoder.Decode(object)
+	if r.error != nil {
+		r.error = liberr.Wrap(r.error)
 		return
 	}
 
