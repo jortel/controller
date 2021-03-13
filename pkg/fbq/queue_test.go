@@ -55,6 +55,7 @@ func TestQueue(t *testing.T) {
 	}
 
 	itr = q.Iterator()
+	g.Expect(itr.Error()).To(gomega.BeNil())
 	defer itr.Close()
 	for {
 		object, done, err := itr.Next()

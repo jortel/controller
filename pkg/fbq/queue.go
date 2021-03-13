@@ -44,6 +44,7 @@ func NewAt(path string) *Queue {
 // Iterator.
 type Iterator interface {
 	Next() (interface{}, bool, error)
+	Error() error
 	Close()
 }
 
@@ -217,6 +218,12 @@ type Reader struct {
 	catalog *[]interface{}
 	// File.
 	file *os.File
+}
+
+//
+// Error.
+func (r *Reader) Error() error {
+	return r.error
 }
 
 //
