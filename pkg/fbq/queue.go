@@ -33,10 +33,14 @@ func NewAt(path string) *Queue {
 		writer: Writer{
 			path: path,
 		},
-		reader: Reader{
-			path: path,
-		},
 	}
+}
+
+//
+// Iterator.
+type Iterator interface {
+	Next() (interface{}, bool, error)
+	Close()
 }
 
 //
@@ -46,8 +50,8 @@ type Queue struct {
 	path string
 	// Queue writer.
 	writer Writer
-	// Queue Reader.
-	reader Reader
+	// Queue iterator.
+	iterator Iterator
 }
 
 //
@@ -60,25 +64,24 @@ func (q *Queue) Put(object interface{}) (err error) {
 //
 // Dequeue the next object.
 func (q *Queue) Next() (object interface{}, end bool, err error) {
-	q.reader.catalog = q.writer.catalog
-	object, end, err = q.reader.Next()
+	if q.iterator == nil {
+		q.iterator = q.Iterator()
+	}
+	object, end, err = q.iterator.Next()
 	return
 }
 
 //
-// Get a new reader.
-func (q *Queue) NewReader() (r *Reader, err error) {
+// Get an iterator.
+func (q *Queue) Iterator() (itr Iterator) {
 	uid, _ := uuid.NewUUID()
 	name := uid.String() + ".fbq"
 	path := pathlib.Join(WorkingDir, name)
-	err = os.Link(q.path, path)
-	if err == nil {
-		r = &Reader{
-			catalog: q.writer.catalog,
-			path:    path,
-		}
-	} else {
-		err = liberr.Wrap(err)
+	err := os.Link(q.path, path)
+	itr = &Reader{
+		linkError: err,
+		catalog: &q.writer.catalog,
+		path:    path,
 	}
 
 	return
@@ -88,7 +91,9 @@ func (q *Queue) NewReader() (r *Reader, err error) {
 // Close the queue.
 func (q *Queue) Close(delete bool) {
 	q.writer.Close(delete)
-	q.reader.Close()
+	if q.iterator != nil {
+		q.iterator.Close()
+	}
 }
 
 //
@@ -200,10 +205,12 @@ func (w *Writer) add(object interface{}) (kind uint16) {
 //
 // Reader.
 type Reader struct {
+	// Error creating linking the file.
+	linkError error
 	// File path.
 	path string
 	// Catalog of object types.
-	catalog []interface{}
+	catalog *[]interface{}
 	// File.
 	file *os.File
 }
@@ -211,6 +218,10 @@ type Reader struct {
 //
 // Dequeue the next object.
 func (r *Reader) Next() (object interface{}, done bool, err error) {
+	if r.linkError != nil {
+		err = r.linkError
+		return
+	}
 	// Lazy open.
 	if r.file == nil {
 		err = r.open()
@@ -302,9 +313,10 @@ func (r *Reader) open() (err error) {
 //
 // Find object (kind) in the catalog.
 func (r *Reader) find(kind uint16) (object interface{}, found bool) {
+	catalog := *r.catalog
 	i := int(kind)
-	if i < len(r.catalog) {
-		object = r.catalog[i]
+	if i < len(catalog) {
+		object = catalog[i]
 		object = reflect.New(reflect.TypeOf(object)).Interface()
 		found = true
 	}

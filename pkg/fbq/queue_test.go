@@ -45,21 +45,19 @@ func TestQueue(t *testing.T) {
 		g.Expect(err).To(gomega.BeNil())
 		g.Expect(done).To(gomega.BeFalse())
 	}
-	reader, err := q.NewReader()
-	g.Expect(err).To(gomega.BeNil())
-	defer reader.Close()
+	itr := q.Iterator()
+	defer itr.Close()
 	for i := 0; i < len(input); i++ {
-		object, done, err := reader.Next()
+		object, done, err := itr.Next()
 		g.Expect(object).ToNot(gomega.BeNil())
 		g.Expect(err).To(gomega.BeNil())
 		g.Expect(done).To(gomega.BeFalse())
 	}
 
-	reader, err = q.NewReader()
-	g.Expect(err).To(gomega.BeNil())
-	defer reader.Close()
+	itr = q.Iterator()
+	defer itr.Close()
 	for {
-		object, done, err := reader.Next()
+		object, done, err := itr.Next()
 		if done {
 			break
 		}
